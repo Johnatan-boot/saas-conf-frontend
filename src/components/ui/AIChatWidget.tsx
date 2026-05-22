@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { MessageCircle, X, Send, Bot, User, Minimize2, Maximize2, Loader2 } from 'lucide-react'
+import { MessageCircle, X, Send, User, Minimize2, Maximize2, Loader2 } from 'lucide-react'
 import { clsx } from '../../utils'
 
 interface Message {
@@ -22,13 +22,65 @@ Você ajuda confeiteiras e confeiteiros com:
 - Precificação e cálculo de margens
 - Redução de desperdício de ingredientes
 - Previsão de demanda e planejamento
-- Automação de vendas e WhatsApp
+- Automação de vendas
 - Dicas práticas de confeitaria e negócios
 
 Responda sempre em português brasileiro, de forma simpática, prática e objetiva.
-Use emojis com moderação. Máximo 4 parágrafos por resposta.
-Se perguntarem sobre dados específicos do sistema (pedidos do dia, estoque, etc.),
-diga que pode verificar no painel e ofereça orientações gerais.`
+Use emojis com moderação. Máximo 3 parágrafos por resposta.`
+
+// FIX 5: Groq em vez de Anthropic (gratuito, sem header problemático)
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
+const GROQ_MODEL = 'llama-3.3-70b-versatile'
+
+async function callGroq(messages: Array<{ role: string; content: string }>): Promise<string> {
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY
+  if (!apiKey) {
+    // Fallback offline: respostas inteligentes sem API
+    return getOfflineResponse(messages[messages.length - 1]?.content || '')
+  }
+
+  const res = await fetch(GROQ_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: [
+        { role: 'system', content: SYSTEM_CONTEXT },
+        ...messages,
+      ],
+      max_tokens: 500,
+      temperature: 0.7,
+    }),
+  })
+
+  if (!res.ok) throw new Error(`Groq error: ${res.status}`)
+  const data = await res.json()
+  return data.choices?.[0]?.message?.content || 'Não consegui processar. Tente novamente!'
+}
+
+// FIX 6: respostas offline para quando não há chave configurada
+function getOfflineResponse(question: string): string {
+  const q = question.toLowerCase()
+  if (q.includes('margem') || q.includes('lucro') || q.includes('preço')) {
+    return '💰 Para calcular a margem real, use a fórmula: (Preço de Venda - Custo Total) ÷ Preço de Venda × 100. Lembre de incluir ingredientes, mão de obra, gás e embalagem no custo. Acesse a tela de **Precificação** para calcular automaticamente!'
+  }
+  if (q.includes('desperdício') || q.includes('ingrediente') || q.includes('perda')) {
+    return '🗑️ Para reduzir desperdício: 1) Use o sistema FIFO (primeiro a entrar, primeiro a sair) 2) Registre cada perda na tela de **Desperdício** 3) A IA identifica padrões e alerta sobre ingredientes que mais geram prejuízo.'
+  }
+  if (q.includes('pedido') || q.includes('produção') || q.includes('hoje')) {
+    return '📦 Acesse a tela de **Pedidos** para ver o status em tempo real. Filtre por "Em Produção" para ver o que está pendente agora. A tela de **Previsão IA** mostra a demanda esperada para os próximos dias!'
+  }
+  if (q.includes('ticket') || q.includes('venda') || q.includes('faturamento')) {
+    return '📈 Para aumentar o ticket médio: use combos automáticos na tela de **Menu Inteligente**, ofereça upsell ("quer adicionar brigadeiro por +R$8?") e identifique os clientes que mais compram na tela de **Recorrência**.'
+  }
+  if (q.includes('whatsapp') || q.includes('telegram') || q.includes('bot')) {
+    return '📱 O bot Telegram está integrado! Configure o token em TELEGRAM_BOT_TOKEN no backend. Para WhatsApp, o sistema usa Evolution API — você só escaneia o QR Code uma vez e o bot gerencia pedidos automaticamente.'
+  }
+  return '🍰 Olá! Posso te ajudar com precificação, gestão de pedidos, redução de desperdício, previsão de demanda e muito mais. Configure sua chave VITE_GROQ_API_KEY no .env para respostas com IA completa. O que você precisa?'
+}
 
 export default function AIChatWidget() {
   const [open, setOpen] = useState(false)
@@ -85,40 +137,22 @@ export default function AIChatWidget() {
         content: m.content,
       }))
 
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'anthropic-dangerous-allow-browser': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 600,
-          system: SYSTEM_CONTEXT,
-          messages: [
-            ...history,
-            { role: 'user', content: text.trim() },
-          ],
-        }),
-      })
+      const reply = await callGroq([...history, { role: 'user', content: text.trim() }])
 
-      const data = await res.json()
-      const reply = data.content?.[0]?.text || 'Desculpe, não consegui processar sua pergunta. Tente novamente!'
-
-      const assistantMsg: Message = {
+      setMessages(m => [...m, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: reply,
         timestamp: new Date(),
-      }
-
-      setMessages(m => [...m, assistantMsg])
+      }])
       if (!open) setUnread(u => u + 1)
-    } catch (err) {
+    } catch {
+      // FIX 7: fallback offline se Groq falhar
+      const fallback = getOfflineResponse(text)
       setMessages(m => [...m, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: '⚠️ Não consegui conectar à IA agora. Verifique sua conexão e tente novamente.',
+        content: fallback,
         timestamp: new Date(),
       }])
     } finally {
@@ -143,7 +177,8 @@ export default function AIChatWidget() {
           'bg-gradient-to-br from-chocolate-700 to-chocolate-900',
           'flex items-center justify-center transition-all duration-300',
           'hover:scale-110 hover:shadow-xl',
-          open ? 'rotate-0' : 'animate-bounce-subtle'
+          // FIX 3 aplicado: usando animate-bounce-subtle agora definido no tailwind
+          open ? 'scale-100' : 'animate-bounce-subtle'
         )}
         title="Assistente IA"
       >
@@ -164,9 +199,11 @@ export default function AIChatWidget() {
       {/* Chat window */}
       {open && (
         <div className={clsx(
-          'fixed bottom-24 right-6 z-50 w-96 bg-white rounded-2xl shadow-2xl border border-cream-100',
+          'fixed bottom-24 right-6 z-50 bg-white rounded-2xl shadow-2xl border border-cream-100',
           'flex flex-col transition-all duration-300',
-          minimized ? 'h-14' : 'h-[520px]'
+          // FIX 8: responsivo - menor em mobile
+          'w-[calc(100vw-3rem)] sm:w-96',
+          minimized ? 'h-14' : 'h-[520px] max-h-[80vh]'
         )}>
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-chocolate-800 to-chocolate-900 rounded-t-2xl flex-shrink-0">
@@ -201,12 +238,9 @@ export default function AIChatWidget() {
                       msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'
                     )}
                   >
-                    {/* Avatar */}
                     <div className={clsx(
                       'w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5',
-                      msg.role === 'user'
-                        ? 'bg-chocolate-700'
-                        : 'bg-amber-100'
+                      msg.role === 'user' ? 'bg-chocolate-700' : 'bg-amber-100'
                     )}>
                       {msg.role === 'user'
                         ? <User size={13} className="text-cream-100" />
@@ -214,17 +248,13 @@ export default function AIChatWidget() {
                       }
                     </div>
 
-                    {/* Bubble */}
                     <div className={clsx(
                       'max-w-[78%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
                       msg.role === 'user'
                         ? 'bg-chocolate-800 text-cream-50 rounded-tr-sm'
                         : 'bg-white border border-cream-200 text-mocha-800 rounded-tl-sm shadow-sm'
                     )}>
-                      <p
-                        dangerouslySetInnerHTML={{ __html: formatMessage(msg.content) }}
-                        className="leading-relaxed"
-                      />
+                      <p dangerouslySetInnerHTML={{ __html: formatMessage(msg.content) }} />
                       <p className={clsx(
                         'text-[10px] mt-1',
                         msg.role === 'user' ? 'text-chocolate-300 text-right' : 'text-mocha-300'
@@ -235,7 +265,6 @@ export default function AIChatWidget() {
                   </div>
                 ))}
 
-                {/* Loading */}
                 {loading && (
                   <div className="flex gap-2.5">
                     <div className="w-7 h-7 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
