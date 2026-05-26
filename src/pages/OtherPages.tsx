@@ -245,8 +245,8 @@ export function OnboardPage() {
     e.preventDefault()
     setLoading(true)
     try {
-      const { default: axios } = await import('axios')
-      const res = await axios.post('/api/tenants/onboard', form)
+      const { default: api } = await import('../services/api')
+      const res = await api.post('/tenants/onboard', form)
       setResult(res.data.data)
       setDone(true)
     } catch (err: any) {
