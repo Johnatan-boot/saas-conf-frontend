@@ -17,6 +17,12 @@ export interface Client {
   total_orders: number; total_spent: number; created_at: string
 }
 
+export interface Category {
+  id: number
+  name: string
+  description?: string
+}
+
 export interface Product {
   id: number; tenant_id: number; name: string; description?: string
   price: number; cost_price?: number; unit: string; stock: number

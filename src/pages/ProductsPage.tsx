@@ -1,35 +1,74 @@
-import React, { useEffect, useState, useCallback } from 'react'
-import { Plus, Search, Pencil, Trash2, AlertTriangle, Package } from 'lucide-react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
+import { Plus, Search, Pencil, Trash2, AlertTriangle, Package, Tag, ImagePlus, X, Loader2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import api from '../services/api'
-import { Product } from '../types'
+import { Product, Category } from '../types'
 import { formatCurrency } from '../utils'
 import { LoadingPage, Modal, Button, Input, Select, Textarea, EmptyState, ConfirmDialog, Table, Badge } from '../components/ui'
 import toast from 'react-hot-toast'
 
+// ── Comprime e converte a imagem escolhida em base64 (JPEG) ──────
+// Evita salvar fotos gigantes no banco: redimensiona para no
+// máximo 800px no lado maior e comprime a 82% de qualidade.
+function compressImageToBase64(file: File, maxDim = 800, quality = 0.82): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        let { width, height } = img
+        if (width > maxDim || height > maxDim) {
+          if (width > height) { height = Math.round(height * (maxDim / width)); width = maxDim }
+          else { width = Math.round(width * (maxDim / height)); height = maxDim }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return reject(new Error('Canvas não suportado neste navegador'))
+        ctx.drawImage(img, 0, 0, width, height)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.onerror = () => reject(new Error('Arquivo de imagem inválido'))
+      img.src = reader.result as string
+    }
+    reader.onerror = () => reject(new Error('Falha ao ler o arquivo'))
+    reader.readAsDataURL(file)
+  })
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [lowStock, setLowStock] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Product | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [view, setView] = useState<'list' | 'chart'>('list')
+  const [imageProcessing, setImageProcessing] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
     name: '', description: '', price: '', cost_price: '', unit: 'unidade',
-    stock: '0', min_stock: '0', is_active: true
+    stock: '0', min_stock: '0', is_active: true, category_id: '', image_url: ''
   })
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [proRes, lowRes] = await Promise.all([api.get('/products'), api.get('/products/low-stock')])
+      const [proRes, lowRes, catRes] = await Promise.all([
+        api.get('/products'),
+        api.get('/products/low-stock'),
+        api.get('/categories'),
+      ])
       setProducts(proRes.data.data)
       setLowStock(lowRes.data.data)
+      setCategories(catRes.data.data)
     } catch { toast.error('Erro ao carregar produtos') }
     finally { setLoading(false) }
   }, [])
@@ -38,7 +77,12 @@ export default function ProductsPage() {
 
   function openNew() {
     setSelected(null)
-    setForm({ name: '', description: '', price: '', cost_price: '', unit: 'unidade', stock: '0', min_stock: '0', is_active: true })
+    setForm({
+      name: '', description: '', price: '', cost_price: '', unit: 'unidade',
+      stock: '0', min_stock: '0', is_active: true,
+      category_id: categories[0] ? String(categories[0].id) : '',
+      image_url: '',
+    })
     setModalOpen(true)
   }
 
@@ -47,16 +91,54 @@ export default function ProductsPage() {
     setForm({
       name: p.name, description: p.description || '', price: String(p.price),
       cost_price: String(p.cost_price || ''), unit: p.unit, stock: String(p.stock),
-      min_stock: String(p.min_stock), is_active: p.is_active
+      min_stock: String(p.min_stock), is_active: p.is_active,
+      category_id: p.category_id ? String(p.category_id) : '',
+      image_url: p.image_url || '',
     })
     setModalOpen(true)
+  }
+
+  async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Selecione um arquivo de imagem')
+      return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error('Imagem muito grande. Máximo 8MB.')
+      return
+    }
+
+    setImageProcessing(true)
+    try {
+      const base64 = await compressImageToBase64(file)
+      setForm(f => ({ ...f, image_url: base64 }))
+    } catch {
+      toast.error('Não foi possível processar a imagem')
+    } finally {
+      setImageProcessing(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  function removeImage() {
+    setForm(f => ({ ...f, image_url: '' }))
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     try {
-      const payload = { ...form, price: Number(form.price), cost_price: form.cost_price ? Number(form.cost_price) : undefined, stock: Number(form.stock), min_stock: Number(form.min_stock) }
+      const payload = {
+        ...form,
+        price: Number(form.price),
+        cost_price: form.cost_price ? Number(form.cost_price) : undefined,
+        stock: Number(form.stock),
+        min_stock: Number(form.min_stock),
+        category_id: form.category_id ? Number(form.category_id) : undefined,
+      }
       if (selected) {
         await api.put(`/products/${selected.id}`, payload)
         toast.success('Produto atualizado!')
@@ -83,7 +165,11 @@ export default function ProductsPage() {
     finally { setDeleting(false) }
   }
 
-  const filtered = products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
+  const filtered = products.filter(p => {
+    const matchSearch = p.name.toLowerCase().includes(search.toLowerCase())
+    const matchCategory = !categoryFilter || String(p.category_id) === categoryFilter
+    return matchSearch && matchCategory
+  })
 
   const margin = (p: Product) => {
     if (!p.cost_price || !p.price) return null
@@ -141,10 +227,26 @@ export default function ProductsPage() {
         </div>
       )}
 
-      <div className="relative">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-mocha-400" />
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar produto..."
-          className="input pl-10 w-full" />
+      {/* Busca + filtro de categoria */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-mocha-400" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar produto..."
+            className="input pl-10 w-full" />
+        </div>
+        <div className="relative w-full sm:w-56">
+          <Tag size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-mocha-400 pointer-events-none z-10" />
+          <select
+            value={categoryFilter}
+            onChange={e => setCategoryFilter(e.target.value)}
+            className="input pl-10 w-full appearance-none"
+          >
+            <option value="">Todas as categorias</option>
+            {categories.map(c => (
+              <option key={c.id} value={String(c.id)}>{c.name}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -158,37 +260,52 @@ export default function ProductsPage() {
               <div key={p.id} className="card card-hover group relative overflow-hidden">
                 {/* status strip */}
                 <div className={`absolute top-0 left-0 w-1 h-full ${p.is_active ? 'bg-green-400' : 'bg-mocha-300'}`} />
-                <div className="pl-3">
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="min-w-0">
-                      <h4 className="font-display font-semibold text-mocha-900 truncate">{p.name}</h4>
-                      {p.category_name && <p className="text-xs text-mocha-400">{p.category_name}</p>}
-                    </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                      <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-cream-100 text-mocha-500"><Pencil size={13} /></button>
-                      <button onClick={() => setDeleteId(p.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400"><Trash2 size={13} /></button>
-                    </div>
+                <div className="pl-3 flex gap-3">
+                  {/* Thumbnail */}
+                  <div className="w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 bg-cream-100 flex items-center justify-center">
+                    {p.image_url ? (
+                      <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <Package className="w-6 h-6 text-cream-300" />
+                    )}
                   </div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="font-display text-xl font-bold text-chocolate-700">{formatCurrency(Number(p.price))}</span>
-                    {m && <Badge variant="success">Margem {m}%</Badge>}
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className={`font-semibold ${isLow ? 'text-yellow-600' : 'text-sage-700'}`}>
-                        {isLow && '⚠️ '}{p.stock} {p.unit}
-                      </span>
-                      {p.min_stock > 0 && <span className="text-mocha-300 text-xs">/ mín {p.min_stock}</span>}
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="min-w-0">
+                        <h4 className="font-display font-semibold text-mocha-900 truncate">{p.name}</h4>
+                        {p.category_name && (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-chocolate-600 bg-chocolate-50 px-2 py-0.5 rounded-full mt-1">
+                            <Tag size={10} /> {p.category_name}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                        <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-cream-100 text-mocha-500"><Pencil size={13} /></button>
+                        <button onClick={() => setDeleteId(p.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400"><Trash2 size={13} /></button>
+                      </div>
                     </div>
-                    {!p.is_active && <Badge variant="warning">Inativo</Badge>}
-                  </div>
-                  {/* Stock bar */}
-                  {p.min_stock > 0 && (
-                    <div className="mt-2 h-1.5 bg-cream-200 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full transition-all ${isLow ? 'bg-yellow-400' : 'bg-sage-400'}`}
-                        style={{ width: `${Math.min(100, (p.stock / (p.min_stock * 3)) * 100)}%` }} />
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-display text-xl font-bold text-chocolate-700">{formatCurrency(Number(p.price))}</span>
+                      {m && <Badge variant="success">Margem {m}%</Badge>}
                     </div>
-                  )}
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className={`font-semibold ${isLow ? 'text-yellow-600' : 'text-sage-700'}`}>
+                          {isLow && '⚠️ '}{p.stock} {p.unit}
+                        </span>
+                        {p.min_stock > 0 && <span className="text-mocha-300 text-xs">/ mín {p.min_stock}</span>}
+                      </div>
+                      {!p.is_active && <Badge variant="warning">Inativo</Badge>}
+                    </div>
+                    {/* Stock bar */}
+                    {p.min_stock > 0 && (
+                      <div className="mt-2 h-1.5 bg-cream-200 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${isLow ? 'bg-yellow-400' : 'bg-sage-400'}`}
+                          style={{ width: `${Math.min(100, (p.stock / (p.min_stock * 3)) * 100)}%` }} />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )
@@ -199,8 +316,62 @@ export default function ProductsPage() {
       {/* Modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={selected ? 'Editar Produto' : 'Novo Produto'} size="md">
         <form onSubmit={handleSubmit} className="space-y-4">
+
+          {/* Upload de imagem */}
+          <div>
+            <label className="label">Foto do produto</label>
+            <div className="flex items-center gap-4">
+              <div
+                onClick={() => !imageProcessing && fileRef.current?.click()}
+                className="w-24 h-24 rounded-2xl border-2 border-dashed border-cream-300 flex items-center justify-center overflow-hidden bg-cream-50 cursor-pointer hover:border-chocolate-400 transition flex-shrink-0 relative"
+              >
+                {imageProcessing ? (
+                  <Loader2 className="w-6 h-6 text-mocha-400 animate-spin" />
+                ) : form.image_url ? (
+                  <img src={form.image_url} alt="Preview" className="w-full h-full object-cover" />
+                ) : (
+                  <ImagePlus className="w-6 h-6 text-mocha-400" />
+                )}
+              </div>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="text-sm text-chocolate-600 font-medium hover:underline"
+                >
+                  {form.image_url ? 'Trocar foto' : 'Escolher foto'}
+                </button>
+                <p className="text-xs text-mocha-400 mt-1">JPG, PNG ou WEBP. Será otimizada automaticamente.</p>
+                {form.image_url && (
+                  <button
+                    type="button"
+                    onClick={removeImage}
+                    className="text-xs text-red-400 hover:underline mt-1 flex items-center gap-1"
+                  >
+                    <X size={12} /> Remover foto
+                  </button>
+                )}
+              </div>
+            </div>
+            <input
+              ref={fileRef} type="file" accept="image/*"
+              className="hidden" onChange={handleImageChange}
+            />
+          </div>
+
           <Input label="Nome *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required placeholder="Ex: Bolo de Chocolate" />
           <Textarea label="Descrição" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Descreva o produto..." />
+
+          <Select
+            label="Categoria"
+            value={form.category_id}
+            onChange={e => setForm(f => ({ ...f, category_id: e.target.value }))}
+            options={[
+              { value: '', label: 'Sem categoria' },
+              ...categories.map(c => ({ value: String(c.id), label: c.name })),
+            ]}
+          />
+
           <div className="grid grid-cols-2 gap-3">
             <Input label="Preço de venda (R$) *" type="number" step="0.01" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} required />
             <Input label="Custo (R$)" type="number" step="0.01" value={form.cost_price} onChange={e => setForm(f => ({ ...f, cost_price: e.target.value }))} />
