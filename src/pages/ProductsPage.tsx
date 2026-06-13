@@ -3,39 +3,12 @@ import { Plus, Search, Pencil, Trash2, AlertTriangle, Package, Tag, ImagePlus, X
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import api from '../services/api'
 import { Product, Category } from '../types'
-import { formatCurrency } from '../utils'
+import { formatCurrency, compressImageToBase64 } from '../utils'
 import { LoadingPage, Modal, Button, Input, Select, Textarea, EmptyState, ConfirmDialog, Table, Badge } from '../components/ui'
 import toast from 'react-hot-toast'
 
-// ── Comprime e converte a imagem escolhida em base64 (JPEG) ──────
-// Evita salvar fotos gigantes no banco: redimensiona para no
-// máximo 800px no lado maior e comprime a 82% de qualidade.
-function compressImageToBase64(file: File, maxDim = 800, quality = 0.82): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const img = new Image()
-      img.onload = () => {
-        let { width, height } = img
-        if (width > maxDim || height > maxDim) {
-          if (width > height) { height = Math.round(height * (maxDim / width)); width = maxDim }
-          else { width = Math.round(width * (maxDim / height)); height = maxDim }
-        }
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return reject(new Error('Canvas não suportado neste navegador'))
-        ctx.drawImage(img, 0, 0, width, height)
-        resolve(canvas.toDataURL('image/jpeg', quality))
-      }
-      img.onerror = () => reject(new Error('Arquivo de imagem inválido'))
-      img.src = reader.result as string
-    }
-    reader.onerror = () => reject(new Error('Falha ao ler o arquivo'))
-    reader.readAsDataURL(file)
-  })
-}
+// Função compressImageToBase64 movida para src/utils/index.ts
+// (compartilhada com DesignSettings.tsx)
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])

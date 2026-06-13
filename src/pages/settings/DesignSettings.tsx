@@ -3,6 +3,7 @@ import { Palette, Upload, Save, Eye, Instagram, Youtube, Copy, CheckCircle2, Glo
 import toast from 'react-hot-toast'
 import { Button, Input } from '../../components/ui'
 import { StoreTheme, DEFAULT_THEME } from '../../types/theme'
+import { compressImageToBase64 } from '../../utils'
 import { themeService } from '../../services/themeService'
 
 function ColorField({ label, value, onChange, hint }: {
@@ -55,19 +56,28 @@ export default function DesignSettings() {
   const upd = (k: keyof StoreTheme, v: string) =>
     setTheme(prev => ({ ...prev, [k]: v }))
 
-  // ── Loga selecionada: converte para base64 localmente ─────────
+  // ── Logo selecionada: redimensiona + comprime antes de virar base64 ──
+  // Mesma função usada nas fotos de produto. Evita o erro 413/500 que
+  // acontecia ao enviar fotos de celular (3-5MB) sem compressão —
+  // o JSON ficava maior que o limite de body do servidor.
   async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
 
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error('Imagem muito grande. Máximo 2MB.')
+    if (!file.type.startsWith('image/')) {
+      toast.error('Selecione um arquivo de imagem')
+      return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error('Imagem muito grande. Máximo 8MB.')
       return
     }
 
     setLogoUploading(true)
     try {
-      const base64 = await themeService.fileToBase64(file)
+      // Logo fica menor que foto de produto: 400px é mais que suficiente
+      // para navbar/avatar e mantém o payload bem pequeno.
+      const base64 = await compressImageToBase64(file, 400, 0.85)
       setLogoPreview(base64)
       setTheme(prev => ({ ...prev, logoUrl: base64 }))
       toast.success('Logo carregada! Clique em Salvar para confirmar.')

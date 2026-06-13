@@ -40,3 +40,35 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
 export function clsx(...classes: (string | boolean | undefined | null)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
+// ============================================================
+// Compressão de imagem no navegador (logo da loja, fotos de produto)
+// Redimensiona para no máx. `maxDim` px no lado maior e converte
+// para JPEG comprimido em base64 — evita payloads grandes no PUT.
+// ============================================================
+export function compressImageToBase64(file: File, maxDim = 800, quality = 0.82): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        let { width, height } = img
+        if (width > maxDim || height > maxDim) {
+          if (width > height) { height = Math.round(height * (maxDim / width)); width = maxDim }
+          else { width = Math.round(width * (maxDim / height)); height = maxDim }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return reject(new Error('Canvas não suportado neste navegador'))
+        ctx.drawImage(img, 0, 0, width, height)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.onerror = () => reject(new Error('Arquivo de imagem inválido'))
+      img.src = reader.result as string
+    }
+    reader.onerror = () => reject(new Error('Falha ao ler o arquivo'))
+    reader.readAsDataURL(file)
+  })
+}
