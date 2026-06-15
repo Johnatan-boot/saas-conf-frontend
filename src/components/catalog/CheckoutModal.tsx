@@ -3,7 +3,6 @@ import { X, ShoppingCart, Trash2, Plus, Minus, ChevronRight, CheckCircle, Messag
 import toast from 'react-hot-toast'
 import { StoreTheme, CartItem, CustomerInfo } from '../../types/theme'
 import { catalogService } from '../../services/catalogService'
-import { paymentGatewayService } from '../../services/paymentGatewayService'
 
 type Step = 'cart' | 'info' | 'payment' | 'success'
 
@@ -11,40 +10,53 @@ interface Props {
   cart: { items: CartItem[]; total: number; totalItems: number; updateQuantity(id: number, q: number): void; removeFromCart(id: number): void; clearCart(): void }
   store: StoreTheme
   onClose(): void
+  customerToken?: string | null
+  customerProfile?: { name: string; email: string; phone: string; address: string } | null
 }
 
-export default function CheckoutModal({ cart, store, onClose }: Props) {
+export default function CheckoutModal({ cart, store, onClose, customerToken, customerProfile }: Props) {
   const [step, setStep] = useState<Step>('cart')
-  const [customer, setCustomer] = useState<CustomerInfo>({ name: '', phone: '', address: '', notes: '', email: '', document: '' })
+  const [customer, setCustomer] = useState<CustomerInfo>(() => ({
+    name: customerProfile?.name || '',
+    phone: customerProfile?.phone || '',
+    address: customerProfile?.address || '',
+    notes: '',
+    email: customerProfile?.email || '',
+    document: '',
+  }))
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'cartao' | 'dinheiro' | 'stripe' | 'mercadopago' | 'pagarme'>('pix')
   const [submitting, setSubmitting] = useState(false)
   const [orderId, setOrderId] = useState('')
   const p = store.primaryColor
 
   async function handleFinalize() {
-    // Gateways externos: Stripe / MP / Pagarme
-    if (['stripe', 'mercadopago', 'pagarme'].includes(paymentMethod)) {
-      const opts = {
-        name: `Pedido ${store.storeName} – ${cart.items.length} ${cart.items.length === 1 ? 'item' : 'itens'}`,
-        amount: cart.total, quantity: 1,
-        customerName: customer.name, customerEmail: customer.email,
-        customerDocument: customer.document, customerPhone: customer.phone,
-      }
-      if (paymentMethod === 'stripe') await paymentGatewayService.checkoutWithStripe(opts)
-      if (paymentMethod === 'mercadopago') await paymentGatewayService.checkoutWithMercadoPago(opts)
-      if (paymentMethod === 'pagarme') await paymentGatewayService.checkoutWithPagarme(opts)
-      return
-    }
-    // Pagamento manual (PIX, dinheiro, cartão na entrega)
     setSubmitting(true)
     try {
+      // Gateways externos (Stripe / MP / Pagar.me): cria o pedido E a
+      // sessão de pagamento numa chamada só, depois redireciona.
+      // Antes, pra esses 3 métodos, o pedido NUNCA era criado.
+      if (['stripe', 'mercadopago', 'pagarme'].includes(paymentMethod)) {
+        const res = await catalogService.checkoutWithGateway(paymentMethod as 'stripe' | 'mercadopago' | 'pagarme', {
+          storeSlug: store.slug, customer,
+          items: cart.items.map(i => ({ productId: i.product.id, quantity: i.quantity, price: i.product.price })),
+          total: cart.total, paymentMethod: paymentMethod as any,
+        }, customerToken)
+        window.location.href = res.url
+        return
+      }
+
+      // Pagamento manual (PIX, dinheiro, cartão na entrega)
       const res = await catalogService.createOrder({
         storeSlug: store.slug, customer,
         items: cart.items.map(i => ({ productId: i.product.id, quantity: i.quantity, price: i.product.price })),
         total: cart.total, paymentMethod: paymentMethod as any,
-      })
+      }, customerToken)
       setOrderId(res.orderId); cart.clearCart(); setStep('success')
-    } catch { toast.error('Erro ao finalizar pedido') } finally { setSubmitting(false) }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Erro ao finalizar pedido')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   function sendWhatsApp() {

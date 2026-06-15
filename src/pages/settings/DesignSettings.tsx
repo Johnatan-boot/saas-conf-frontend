@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Palette, Upload, Save, Eye, Instagram, Youtube, Copy, CheckCircle2, Globe, Link, Loader2 } from 'lucide-react'
+import { Palette, Upload, Save, Eye, Instagram, Youtube, Copy, CheckCircle2, Globe, Link, Loader2, MapPin, ImagePlus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button, Input } from '../../components/ui'
 import { StoreTheme, DEFAULT_THEME } from '../../types/theme'
@@ -37,7 +37,10 @@ export default function DesignSettings() {
   const [copied, setCopied] = useState(false)
   const [logoPreview, setLogoPreview] = useState('')
   const [logoUploading, setLogoUploading] = useState(false)
+  const [bannerPreview, setBannerPreview] = useState('')
+  const [bannerUploading, setBannerUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const bannerFileRef = useRef<HTMLInputElement>(null)
 
   const catalogUrl = theme.slug
     ? `${window.location.origin}/catalogo/${theme.slug}`
@@ -48,6 +51,7 @@ export default function DesignSettings() {
       .then(d => {
         setTheme(prev => ({ ...DEFAULT_THEME, ...d }))
         setLogoPreview(d?.logoUrl || '')
+        setBannerPreview(d?.bannerUrl || '')
       })
       .catch(() => toast.error('Erro ao carregar configurações de design'))
       .finally(() => setLoading(false))
@@ -86,6 +90,41 @@ export default function DesignSettings() {
     } finally {
       setLogoUploading(false)
     }
+  }
+
+  // ── Banner do hero: comprime mantendo formato largo ───────────────
+  // Imagem de referência típica: ~1792x600 (proporção ~3:1).
+  // maxDim=1280 mantém boa nitidez em desktop sem pesar o payload.
+  async function handleBannerChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Selecione um arquivo de imagem')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Imagem muito grande. Máximo 10MB.')
+      return
+    }
+
+    setBannerUploading(true)
+    try {
+      const base64 = await compressImageToBase64(file, 1280, 0.8)
+      setBannerPreview(base64)
+      setTheme(prev => ({ ...prev, bannerUrl: base64 }))
+      toast.success('Banner carregado! Clique em Salvar para confirmar.')
+    } catch {
+      toast.error('Erro ao carregar a imagem')
+    } finally {
+      setBannerUploading(false)
+      if (bannerFileRef.current) bannerFileRef.current.value = ''
+    }
+  }
+
+  function removeBanner() {
+    setBannerPreview('')
+    upd('bannerUrl', '')
   }
 
   async function handleSave() {
@@ -169,6 +208,54 @@ export default function DesignSettings() {
         </div>
       )}
 
+      {/* Banner do Catálogo */}
+      <div className="card space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-display font-semibold text-mocha-900 flex items-center gap-2">
+            <ImagePlus className="w-4 h-4 text-chocolate-600" /> Banner do Catálogo
+          </h3>
+          {bannerPreview && (
+            <button
+              type="button"
+              onClick={removeBanner}
+              className="text-xs text-red-400 hover:underline flex items-center gap-1"
+            >
+              <X size={12} /> Remover
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-mocha-400">
+          Aparece como imagem de fundo na seção "Nosso Cardápio", logo abaixo do menu.
+          Recomendado: imagem larga (proporção ~3:1, ex: 1792×600px).
+        </p>
+        <div
+          onClick={() => !bannerUploading && bannerFileRef.current?.click()}
+          className="w-full aspect-[3/1] rounded-2xl border-2 border-dashed border-cream-300 flex items-center justify-center overflow-hidden bg-cream-50 cursor-pointer hover:border-chocolate-400 transition relative"
+        >
+          {bannerUploading ? (
+            <Loader2 className="w-6 h-6 text-mocha-400 animate-spin" />
+          ) : bannerPreview ? (
+            <img src={bannerPreview} alt="Banner" className="w-full h-full object-cover" />
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-mocha-400">
+              <ImagePlus className="w-8 h-8" />
+              <span className="text-sm font-medium">Clique para escolher uma imagem</span>
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => bannerFileRef.current?.click()}
+          className="text-sm text-chocolate-600 font-medium hover:underline"
+        >
+          {bannerPreview ? 'Trocar banner' : 'Escolher imagem'}
+        </button>
+        <input
+          ref={bannerFileRef} type="file" accept="image/*"
+          className="hidden" onChange={handleBannerChange}
+        />
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Coluna: Identidade */}
         <div className="card space-y-5">
@@ -236,6 +323,20 @@ export default function DesignSettings() {
               placeholder="Ex: Doces que contam histórias"
               className="input"
             />
+          </div>
+
+          <div>
+            <label className="label">Sobre a loja</label>
+            <textarea
+              value={theme.aboutText}
+              onChange={e => upd('aboutText', e.target.value)}
+              placeholder="Conte um pouco sobre a história da sua confeitaria, o que vocês fazem de especial..."
+              rows={4}
+              className="input resize-y min-h-[100px]"
+            />
+            <p className="text-xs text-mocha-400 mt-1">
+              Aparece na seção "Sobre" do catálogo. Deixe em branco para ocultar essa seção.
+            </p>
           </div>
 
           <div>
@@ -317,15 +418,26 @@ export default function DesignSettings() {
         </div>
       </div>
 
-      {/* Redes Sociais */}
+      {/* Redes Sociais & Contato */}
       <div className="card space-y-4">
         <h3 className="font-display font-semibold text-mocha-900 border-b border-cream-100 pb-3 flex items-center gap-2">
-          <Link size={16} /> Redes Sociais
+          <Link size={16} /> Redes Sociais & Contato
         </h3>
         <p className="text-sm text-mocha-500">
-          Aparecem no rodapé do catálogo público.
+          Aparecem na seção "Contato" e no rodapé do catálogo público.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="sm:col-span-2">
+            <label className="label flex items-center gap-1">
+              <MapPin size={14} className="text-chocolate-500" /> Endereço
+            </label>
+            <input
+              type="text" value={theme.address}
+              onChange={e => upd('address', e.target.value)}
+              placeholder="Ex: Rua das Flores, 123 - Centro, Sua Cidade"
+              className="input"
+            />
+          </div>
           <div>
             <label className="label flex items-center gap-1">
               <Instagram size={14} className="text-pink-500" /> Instagram

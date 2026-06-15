@@ -12,8 +12,22 @@ export const catalogService = {
     const { data } = await axios.get(`${BASE}/public/store/${slug}/products`)
     return data.data
   },
-  async createOrder(order: OrderPayload): Promise<{ orderId: string }> {
-    const { data } = await axios.post(`${BASE}/public/store/${order.storeSlug}/orders`, order)
+  async createOrder(order: OrderPayload, customerToken?: string | null): Promise<{ orderId: string }> {
+    const headers = customerToken ? { Authorization: `Bearer ${customerToken}` } : undefined
+    const { data } = await axios.post(`${BASE}/public/store/${order.storeSlug}/orders`, order, { headers })
+    return data.data
+  },
+
+  // Cria o pedido E a sessão de pagamento no gateway escolhido,
+  // numa única chamada — o pedido fica registrado mesmo que o
+  // cliente acabe não concluindo o pagamento no Stripe/MP/Pagar.me.
+  async checkoutWithGateway(
+    gateway: 'stripe' | 'mercadopago' | 'pagarme',
+    order: OrderPayload,
+    customerToken?: string | null
+  ): Promise<{ url: string; orderId: string; code: string }> {
+    const headers = customerToken ? { Authorization: `Bearer ${customerToken}` } : undefined
+    const { data } = await axios.post(`${BASE}/public/store/${order.storeSlug}/checkout/${gateway}`, order, { headers })
     return data.data
   },
 }
