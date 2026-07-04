@@ -1,8 +1,58 @@
 import React, { useEffect, useState } from 'react'
+import { CheckCircle, Sparkles } from 'lucide-react'
 import api from '../services/api'
 import { formatCurrency, formatDate, formatDateTime } from '../utils'
 import { LoadingPage, EmptyState, Badge } from '../components/ui'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+
+// ── Planos do SaaS ─────────────────────────────────────────────────────────
+const PLANS_CATALOG = [
+  {
+    id: 'economico',
+    icon: '🌱',
+    name: 'Econômico',
+    price: 49.90,
+    description: 'Ideal para quem está começando',
+    color: 'from-slate-400 to-slate-600',
+    border: 'border-slate-300',
+    badge: 'bg-slate-100 text-slate-700',
+    features: ['Até 50 pedidos/mês', '1 usuário', 'Dashboard básico', 'Gestão de produtos', 'Catálogo público'],
+  },
+  {
+    id: 'standard',
+    icon: '🎂',
+    name: 'Standard',
+    price: 99.90,
+    description: 'Perfeito para confeitarias em crescimento',
+    color: 'from-amber-500 to-amber-700',
+    border: 'border-amber-400',
+    badge: 'bg-amber-100 text-amber-700',
+    popular: true,
+    features: ['Até 300 pedidos/mês', 'Até 5 usuários', 'Precificação inteligente', 'Catálogo + checkout online', 'Integração WhatsApp'],
+  },
+  {
+    id: 'premium',
+    icon: '👑',
+    name: 'Premium',
+    price: 199.90,
+    description: 'Para confeitarias que querem o máximo',
+    color: 'from-chocolate-700 to-chocolate-900',
+    border: 'border-chocolate-500',
+    badge: 'bg-chocolate-100 text-chocolate-800',
+    features: ['Pedidos ilimitados', 'Usuários ilimitados', 'Relatórios avançados', 'Automação WhatsApp', 'Suporte prioritário 24h'],
+  },
+] as const
+
+type PlanId = 'economico' | 'standard' | 'premium'
+
+const PLAN_INFO: Record<string, { label: string; badgeClass: string; icon: string }> = {
+  economico:  { label: 'Econômico',  badgeClass: 'bg-slate-100 text-slate-700', icon: '🌱' },
+  standard:   { label: 'Standard',   badgeClass: 'bg-amber-100 text-amber-700', icon: '🎂' },
+  premium:    { label: 'Premium',    badgeClass: 'bg-green-100 text-green-700', icon: '👑' },
+  free:       { label: 'Free',       badgeClass: 'bg-gray-100 text-gray-600',   icon: '🎁' },
+  pro:        { label: 'Pro',        badgeClass: 'bg-blue-100 text-blue-700',   icon: '⚡' },
+  enterprise: { label: 'Enterprise', badgeClass: 'bg-purple-100 text-purple-700', icon: '🏢' },
+}
 
 // ── Reports ────────────────────────────────────────────────────────────────
 export function ReportsPage() {
@@ -159,6 +209,9 @@ export function SettingsPage() {
     finally { setSaving(false) }
   }
 
+  const planInfo = tenant?.plan ? (PLAN_INFO[tenant.plan] || PLAN_INFO.economico) : null
+  const currentPlan = PLANS_CATALOG.find(p => p.id === tenant?.plan)
+
   return (
     <div className="space-y-6">
       <div>
@@ -168,16 +221,50 @@ export function SettingsPage() {
 
       {tenant && (
         <div className="card">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-2xl bg-chocolate-800 flex items-center justify-center text-cream-50 font-bold">🎂</div>
-            <div>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-2xl bg-chocolate-800 flex items-center justify-center text-cream-50 font-bold text-xl">🎂</div>
+            <div className="flex-1">
               <p className="font-semibold text-mocha-900">{tenant.name}</p>
               <p className="text-xs text-mocha-400">Slug: {tenant.slug}</p>
             </div>
-            <div className="ml-auto">
-              <Badge variant={tenant.plan === 'pro' ? 'success' : 'default'}>{tenant.plan?.toUpperCase()}</Badge>
-            </div>
+            {planInfo && (
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${planInfo.badgeClass}`}>
+                <span>{planInfo.icon}</span> {planInfo.label}
+              </span>
+            )}
           </div>
+
+          {/* Detalhes do plano atual */}
+          {currentPlan && (
+            <div className={`rounded-2xl border-2 ${currentPlan.border} p-4`}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${currentPlan.color} flex items-center justify-center text-base`}>
+                    {currentPlan.icon}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-mocha-900 text-sm">Plano {currentPlan.name}</p>
+                    <p className="text-xs text-mocha-400">{currentPlan.description}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="font-display font-bold text-mocha-900">{formatCurrency(currentPlan.price)}</p>
+                  <p className="text-xs text-mocha-400">/mês</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {currentPlan.features.map((f, i) => (
+                  <div key={i} className="flex items-center gap-1.5 text-xs text-mocha-700">
+                    <CheckCircle size={12} className="text-green-500 flex-shrink-0" />
+                    {f}
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-mocha-400 mt-3 flex items-center gap-1">
+                <Sparkles size={12} /> Para mudar de plano, entre em contato com o suporte.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -237,6 +324,7 @@ export function SettingsPage() {
 // ── Onboard ───────────────────────────────────────────────────────────────
 export function OnboardPage() {
   const [form, setForm] = useState({ tenantName: '', adminName: '', adminEmail: '', adminPassword: '' })
+  const [selectedPlan, setSelectedPlan] = useState<PlanId>('economico')
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
   const [result, setResult] = useState<any>(null)
@@ -246,7 +334,7 @@ export function OnboardPage() {
     setLoading(true)
     try {
       const { default: api } = await import('../services/api')
-      const res = await api.post('/tenants/onboard', form)
+      const res = await api.post('/tenants/onboard', { ...form, plan: selectedPlan })
       setResult(res.data.data)
       setDone(true)
     } catch (err: any) {
@@ -255,12 +343,17 @@ export function OnboardPage() {
     } finally { setLoading(false) }
   }
 
+  const chosenPlan = PLANS_CATALOG.find(p => p.id === selectedPlan)!
+
   if (done && result) return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-mocha-900">
       <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-warm-lg animate-slide-up">
         <div className="text-5xl mb-4">🎉</div>
         <h2 className="font-display text-2xl font-bold text-mocha-900 mb-2">Confeitaria criada!</h2>
-        <p className="text-mocha-500 text-sm mb-6">Sua conta está pronta. Guarde seu slug para fazer login.</p>
+        <p className="text-mocha-500 text-sm mb-4">Sua conta está pronta. Guarde seu slug para fazer login.</p>
+        <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold mb-4 ${chosenPlan.badge}`}>
+          {chosenPlan.icon} Plano {chosenPlan.name} — {formatCurrency(chosenPlan.price)}/mês
+        </div>
         <div className="bg-cream-50 rounded-2xl p-4 text-left text-sm space-y-2 mb-6">
           <p><span className="text-mocha-400">Slug:</span> <strong className="text-chocolate-700">{result.tenant?.slug}</strong></p>
           <p><span className="text-mocha-400">Email:</span> <strong>{form.adminEmail}</strong></p>
@@ -273,20 +366,21 @@ export function OnboardPage() {
   return (
     <div className="min-h-screen flex">
       {/* Painel esquerdo — formulário */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-mocha-900 relative overflow-hidden">
+      <div className="flex-1 flex items-start justify-center p-6 sm:p-8 bg-mocha-900 relative overflow-hidden overflow-y-auto">
         <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-chocolate-700/20 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-sage-600/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative w-full max-w-md animate-slide-up">
+        <div className="relative w-full max-w-md animate-slide-up py-8">
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-20 h-20 bg-cream-100 rounded-3xl mb-4 shadow-warm-lg text-4xl">
               🎂
             </div>
             <h1 className="font-display text-3xl font-bold text-cream-50">Cadastre sua confeitaria</h1>
-            <p className="text-chocolate-300 text-sm mt-1">Comece gratuitamente em 30 segundos</p>
+            <p className="text-chocolate-300 text-sm mt-1">Comece em 30 segundos</p>
           </div>
 
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8">
+          {/* Formulário de dados */}
+          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 mb-6">
             <form onSubmit={handleSubmit} className="space-y-4">
               {[
                 { label: 'Nome da confeitaria', key: 'tenantName', placeholder: 'Ex: Confeitaria da Ana', type: 'text' },
@@ -302,12 +396,66 @@ export function OnboardPage() {
                     className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-cream-50 placeholder-chocolate-400 focus:outline-none focus:ring-2 focus:ring-chocolate-400 transition-all" />
                 </div>
               ))}
+
+              {/* ── Seleção de Plano ── */}
+              <div className="pt-2">
+                <p className="text-sm font-semibold text-chocolate-200 mb-3">Escolha seu plano:</p>
+                <div className="space-y-2">
+                  {PLANS_CATALOG.map(plan => (
+                    <button
+                      key={plan.id}
+                      type="button"
+                      onClick={() => setSelectedPlan(plan.id as PlanId)}
+                      className={`w-full rounded-2xl border-2 p-3.5 text-left transition-all relative ${
+                        selectedPlan === plan.id
+                          ? 'border-chocolate-400 bg-chocolate-600/30'
+                          : 'border-white/15 bg-white/5 hover:border-white/30'
+                      }`}
+                    >
+                      {(plan as any).popular && selectedPlan !== plan.id && (
+                        <span className="absolute -top-2 right-3 bg-amber-400 text-amber-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          MAIS POPULAR
+                        </span>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center text-lg flex-shrink-0`}>
+                            {plan.icon}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-cream-50">{plan.name}</p>
+                            <p className="text-xs text-chocolate-300">{plan.description}</p>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0 ml-2">
+                          <p className="text-sm font-bold text-cream-50">{formatCurrency(plan.price)}<span className="text-[10px] font-normal text-chocolate-300">/mês</span></p>
+                          {selectedPlan === plan.id && (
+                            <CheckCircle size={16} className="text-chocolate-300 ml-auto mt-0.5" />
+                          )}
+                        </div>
+                      </div>
+                      {selectedPlan === plan.id && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {plan.features.slice(0, 3).map((f, i) => (
+                            <span key={i} className="text-[10px] bg-white/10 text-chocolate-200 px-2 py-0.5 rounded-full">
+                              ✓ {f}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <button type="submit" disabled={loading}
                 className="w-full bg-chocolate-600 hover:bg-chocolate-500 text-cream-50 font-semibold py-3 rounded-xl transition-all duration-200 hover:shadow-warm active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 mt-2">
-                {loading ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Criando...</> : 'Criar minha confeitaria'}
+                {loading
+                  ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Criando...</>
+                  : `Criar com plano ${chosenPlan.name} →`}
               </button>
             </form>
-            <p className="text-center text-chocolate-400 text-xs mt-5">
+            <p className="text-center text-chocolate-400 text-xs mt-4">
               Já tem conta? <a href="/login" className="text-chocolate-200 hover:text-cream-100 underline">Entrar</a>
             </p>
           </div>
@@ -315,7 +463,7 @@ export function OnboardPage() {
       </div>
 
       {/* Painel direito — imagem */}
-      <div className="hidden lg:block lg:w-[55%] relative">
+      <div className="hidden lg:block lg:w-[50%] relative">
         <img
           src="https://images.pexels.com/photos/34802628/pexels-photo-34802628.jpeg"
           alt="Doces artesanais"
@@ -326,7 +474,7 @@ export function OnboardPage() {
           <blockquote className="text-white font-display text-2xl font-semibold leading-snug drop-shadow-lg">
             "Cada pedido é uma história.<br />Conte a sua com a gente."
           </blockquote>
-          <p className="text-cream-200/80 text-sm mt-3 drop-shadow">Cadastro gratuito. Sem cartão de crédito.</p>
+          <p className="text-cream-200/80 text-sm mt-3 drop-shadow">Cancele quando quiser. Sem fidelidade.</p>
         </div>
       </div>
     </div>

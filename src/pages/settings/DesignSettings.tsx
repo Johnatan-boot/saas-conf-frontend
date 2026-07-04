@@ -128,17 +128,21 @@ export default function DesignSettings() {
   }
 
   async function handleSave() {
-    if (!theme.slug) {
-      toast.error('Defina um slug para a URL do catálogo antes de salvar.')
-      return
-    }
     setSaving(true)
     try {
+      if (!theme.slug) {
+        // Avisa mas não bloqueia — permite salvar banner/cores sem slug
+        toast('⚠️ Lembre de definir a URL do catálogo (slug) para torná-lo público.', { duration: 5000 })
+      }
       await themeService.saveTheme(theme)
       toast.success('Design salvo com sucesso! ✅')
     } catch (err: any) {
-      const msg = err?.response?.data?.error || 'Erro ao salvar'
-      toast.error(msg)
+      const msg = err?.response?.data?.error || err?.message || 'Erro ao salvar'
+      if (err?.response?.status === 413) {
+        toast.error('Imagem muito grande. Tente uma foto menor ou de menor resolução.')
+      } else {
+        toast.error(msg)
+      }
     } finally {
       setSaving(false)
     }
