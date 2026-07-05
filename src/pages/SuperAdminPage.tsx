@@ -1,609 +1,629 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
-  Crown, Users, CreditCard, TrendingUp, Shield, Search, MoreVertical,
-  CheckCircle, XCircle, Clock, Star, Zap, Package, ChevronDown, X,
-  Edit, Ban, RefreshCw, Plus, Building, Mail, Phone, Calendar
+  Crown, Users, TrendingUp, Shield, Search, MoreVertical,
+  CheckCircle, XCircle, Clock, Star, Zap, Package, Plus,
+  Building, Mail, Calendar, RefreshCw, Edit2, Ban,
+  DollarSign, BarChart3, AlertTriangle, Loader2
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '../utils'
-import { clsx } from '../utils'
+import toast from 'react-hot-toast'
+import api from '../services/api'
 
-// ── Mock data ─────────────────────────────────────────────────────────────
+// ── Constantes de planos ─────────────────────────────────────────────────
 const PLANS = [
   {
-    id: 'economico',
-    name: 'Econômico',
-    price: 49.90,
+    id: 'economico', name: 'Econômico', price: 49.90, icon: '🌱',
     color: 'from-slate-400 to-slate-600',
     badge: 'bg-slate-100 text-slate-700',
-    icon: '🌱',
-    features: [
-      'Até 50 pedidos/mês',
-      '1 usuário',
-      'Dashboard básico',
-      'Gestão de produtos',
-      'Clientes ilimitados',
-      'Relatórios básicos',
-    ],
+    border: 'border-slate-200',
     limits: { orders: 50, users: 1, products: 30 },
+    features: [
+      '✅ Até 50 pedidos/mês',
+      '✅ 1 usuário (admin)',
+      '✅ Gestão de produtos (até 30)',
+      '✅ Gestão de clientes (até 100)',
+      '✅ Catálogo público básico',
+      '✅ Checkout PIX/Dinheiro',
+      '✅ Dashboard com KPIs',
+      '✅ Design personalizado (básico)',
+      '❌ Gateways online (Stripe/MP/Pagar.me)',
+      '❌ Conta do cliente final',
+      '❌ Precificação inteligente',
+      '❌ Relatórios avançados',
+      '❌ Telegram/Zapier',
+      '❌ Auditoria de ações',
+    ],
   },
   {
-    id: 'standard',
-    name: 'Standard',
-    price: 99.90,
+    id: 'standard', name: 'Standard', price: 99.90, icon: '🎂',
     color: 'from-amber-500 to-amber-700',
     badge: 'bg-amber-100 text-amber-700',
-    icon: '🎂',
-    features: [
-      'Até 300 pedidos/mês',
-      'Até 5 usuários',
-      'Precificação inteligente',
-      'Controle de desperdício',
-      'Cardápio digital',
-      'WhatsApp básico',
-      'Previsão de demanda',
-    ],
-    limits: { orders: 300, users: 5, products: 200 },
+    border: 'border-amber-300',
     popular: true,
+    limits: { orders: 300, users: 5, products: 200 },
+    features: [
+      '✅ Até 300 pedidos/mês',
+      '✅ Até 5 usuários',
+      '✅ Produtos ilimitados (até 200)',
+      '✅ Clientes ilimitados (até 500)',
+      '✅ Catálogo público + checkout',
+      '✅ Gateways online (Stripe/MP/Pagar.me)',
+      '✅ Conta do cliente final + Meus Pedidos',
+      '✅ Precificação inteligente (custo/margem)',
+      '✅ Dashboard completo + gráficos',
+      '✅ Design completo (banner, cores, sobre)',
+      '✅ Relatórios de faturamento',
+      '✅ Notificações Telegram',
+      '✅ Automações Zapier',
+      '❌ Auditoria de ações',
+    ],
   },
   {
-    id: 'premium',
-    name: 'Premium',
-    price: 199.90,
+    id: 'premium', name: 'Premium', price: 199.90, icon: '👑',
     color: 'from-chocolate-700 to-chocolate-900',
     badge: 'bg-chocolate-100 text-chocolate-800',
-    icon: '👑',
+    border: 'border-chocolate-400',
+    limits: { orders: 999999, users: 999999, products: 999999 },
     features: [
-      'Pedidos ilimitados',
-      'Usuários ilimitados',
-      'IA de previsão avançada',
-      'WhatsApp automação total',
-      'Sistema de recorrência',
-      'Margem real de lucro',
-      'Menu inteligente',
-      'Suporte prioritário',
+      '✅ Pedidos ILIMITADOS',
+      '✅ Usuários ILIMITADOS',
+      '✅ Produtos ILIMITADOS',
+      '✅ Clientes ILIMITADOS',
+      '✅ TUDO do plano Standard',
+      '✅ Auditoria completa de ações',
+      '✅ Relatórios avançados (por produto/cliente)',
+      '✅ Múltiplas categorias',
+      '✅ Integração iFood (beta)',
+      '✅ Suporte prioritário 24h',
+      '✅ Acesso antecipado a novas features',
     ],
-    limits: { orders: Infinity, users: Infinity, products: Infinity },
   },
 ]
 
-const MOCK_TENANTS = [
-  {
-    id: 1, name: 'Doces da Maria', slug: 'doces-maria',
-    email: 'maria@docesmaria.com.br', phone: '(11) 99999-1111',
-    plan: 'premium', plan_status: 'active', mrr: 199.90,
-    orders_this_month: 234, users: 3, created_at: '2024-01-15',
-    last_activity: '2025-05-04',
-  },
-  {
-    id: 2, name: 'Confeitaria Bella', slug: 'confeitaria-bella',
-    email: 'bella@confbella.com', phone: '(21) 98888-2222',
-    plan: 'standard', plan_status: 'active', mrr: 99.90,
-    orders_this_month: 87, users: 2, created_at: '2024-03-20',
-    last_activity: '2025-05-05',
-  },
-  {
-    id: 3, name: 'Bolos da Ana', slug: 'bolos-ana',
-    email: 'ana@bolosana.com', phone: '(31) 97777-3333',
-    plan: 'economico', plan_status: 'active', mrr: 49.90,
-    orders_this_month: 32, users: 1, created_at: '2024-06-01',
-    last_activity: '2025-05-01',
-  },
-  {
-    id: 4, name: 'Sweet Dreams', slug: 'sweet-dreams',
-    email: 'contato@sweetdreams.com', phone: '(41) 96666-4444',
-    plan: 'premium', plan_status: 'overdue', mrr: 199.90,
-    orders_this_month: 0, users: 4, created_at: '2024-02-10',
-    last_activity: '2025-04-15',
-  },
-  {
-    id: 5, name: 'Ateliê Dulce', slug: 'atelie-dulce',
-    email: 'dulce@ateliedluce.com', phone: '(51) 95555-5555',
-    plan: 'standard', plan_status: 'cancelled', mrr: 0,
-    orders_this_month: 0, users: 1, created_at: '2023-11-01',
-    last_activity: '2025-03-20',
-  },
+const BILLING_CYCLES = [
+  { id: 'mensal', label: 'Mensal', months: 1, discount: 0 },
+  { id: '12x', label: '12 meses (-10%)', months: 12, discount: 10 },
+  { id: '24x', label: '24 meses (-15%)', months: 24, discount: 15 },
+  { id: '36x', label: '36 meses (-20%)', months: 36, discount: 20 },
 ]
 
-const PLAN_STATUS = {
-  active: { label: 'Ativo', color: 'bg-green-100 text-green-700', icon: CheckCircle },
-  overdue: { label: 'Inadimplente', color: 'bg-red-100 text-red-700', icon: XCircle },
-  trial: { label: 'Trial', color: 'bg-blue-100 text-blue-700', icon: Clock },
-  cancelled: { label: 'Cancelado', color: 'bg-gray-100 text-gray-500', icon: Ban },
+const STATUS_MAP: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  active:    { label: 'Ativo',     color: 'text-green-600 bg-green-50',   icon: <CheckCircle size={12} /> },
+  trial:     { label: 'Trial',     color: 'text-blue-600 bg-blue-50',     icon: <Clock size={12} /> },
+  overdue:   { label: 'Inadimp.', color: 'text-red-600 bg-red-50',       icon: <AlertTriangle size={12} /> },
+  suspended: { label: 'Suspenso', color: 'text-orange-600 bg-orange-50', icon: <Ban size={12} /> },
+  cancelled: { label: 'Cancelado',color: 'text-gray-600 bg-gray-50',     icon: <XCircle size={12} /> },
 }
 
-const PLAN_COLORS: Record<string, string> = {
-  economico: 'bg-slate-100 text-slate-700',
-  standard: 'bg-amber-100 text-amber-700',
-  premium: 'bg-chocolate-100 text-chocolate-800',
+// ── Service ──────────────────────────────────────────────────────────────
+const saApi = {
+  getRevenue:   () => api.get('/superadmin/revenue').then(r => r.data.data),
+  getTenants:   () => api.get('/superadmin/tenants').then(r => r.data.data),
+  updatePlan:   (id: number, plan: string, planStatus = 'active') =>
+    api.put(`/superadmin/tenants/${id}/plan`, { plan, plan_status: planStatus }),
+  updateStatus: (id: number, status: string) =>
+    api.put(`/superadmin/tenants/${id}/status`, { status }),
+  getSubs:      () => api.get('/superadmin/subscriptions').then(r => r.data.data),
+  createSub:    (data: any) => api.post('/superadmin/subscriptions', data).then(r => r.data.data),
+  updateSub:    (id: number, status: string) => api.patch(`/superadmin/subscriptions/${id}/status`, { status }),
 }
 
-// ── Components ─────────────────────────────────────────────────────────────
-function KPICard({ label, value, sub, icon, color }: any) {
+// ── Helpers ───────────────────────────────────────────────────────────────
+function PlanBadge({ plan }: { plan: string }) {
+  const p = PLANS.find(x => x.id === plan)
+  if (!p) return <span className="text-xs text-gray-400">{plan}</span>
   return (
-    <div className="card">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-medium text-mocha-500 uppercase tracking-wider">{label}</p>
-          <p className="font-display text-2xl font-bold text-mocha-900 mt-1">{value}</p>
-          {sub && <p className="text-xs text-mocha-400 mt-1">{sub}</p>}
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${p.badge}`}>
+      {p.icon} {p.name}
+    </span>
+  )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const s = STATUS_MAP[status] || STATUS_MAP.active
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${s.color}`}>
+      {s.icon} {s.label}
+    </span>
+  )
+}
+
+// ── Componente principal ──────────────────────────────────────────────────
+export default function SuperAdminPage() {
+  const [tab, setTab] = useState<'dashboard' | 'tenants' | 'subscriptions' | 'plans'>('dashboard')
+  const [revenue, setRevenue] = useState<any>(null)
+  const [tenants, setTenants] = useState<any[]>([])
+  const [subs, setSubs] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [filterPlan, setFilterPlan] = useState('todos')
+  const [filterStatus, setFilterStatus] = useState('todos')
+  const [showSubForm, setShowSubForm] = useState(false)
+  const [editingTenant, setEditingTenant] = useState<any>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [rev, ten, sub] = await Promise.all([saApi.getRevenue(), saApi.getTenants(), saApi.getSubs()])
+      setRevenue(rev)
+      setTenants(ten)
+      setSubs(sub)
+    } catch {
+      toast.error('Erro ao carregar dados do super admin')
+    } finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  // Cálculos de receita
+  const mrr = revenue?.byPlan?.reduce((s: number, p: any) => s + Number(p.mrr || 0), 0) || 0
+  const arr = mrr * 12
+  const totalActive = tenants.filter(t => t.plan_status === 'active').length
+  const totalOverdue = tenants.filter(t => t.plan_status === 'overdue').length
+
+  const filteredTenants = tenants.filter(t => {
+    const matchS = !search || t.name.toLowerCase().includes(search.toLowerCase()) || t.email?.toLowerCase().includes(search.toLowerCase())
+    const matchP = filterPlan === 'todos' || t.plan === filterPlan
+    const matchSt = filterStatus === 'todos' || t.plan_status === filterStatus
+    return matchS && matchP && matchSt
+  })
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64 gap-3 text-mocha-400">
+      <Loader2 className="w-5 h-5 animate-spin" /> Carregando dados...
+    </div>
+  )
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-chocolate-700 to-chocolate-900 flex items-center justify-center">
+            <Crown size={20} className="text-amber-400" />
+          </div>
+          <div>
+            <h2 className="font-display text-2xl font-bold text-mocha-900">Super Admin</h2>
+            <p className="text-mocha-400 text-sm">Gestão global do SweetFlow SaaS</p>
+          </div>
         </div>
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl ${color}`}>{icon}</div>
+        <button onClick={load} className="flex items-center gap-2 text-sm text-mocha-500 hover:text-mocha-800 transition">
+          <RefreshCw size={14} /> Atualizar
+        </button>
       </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 bg-cream-100 rounded-2xl w-fit">
+        {[
+          { id: 'dashboard', label: 'Painel', icon: BarChart3 },
+          { id: 'tenants', label: 'Confeitarias', icon: Building },
+          { id: 'subscriptions', label: 'Assinaturas', icon: DollarSign },
+          { id: 'plans', label: 'Planos', icon: Star },
+        ].map(t => (
+          <button key={t.id} onClick={() => setTab(t.id as any)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${tab === t.id ? 'bg-white text-mocha-900 shadow-sm' : 'text-mocha-400 hover:text-mocha-700'}`}>
+            <t.icon size={14} /> {t.label}
+            {t.id === 'tenants' && <span className="ml-1 bg-chocolate-100 text-chocolate-700 text-xs font-bold px-1.5 py-0.5 rounded-full">{tenants.length}</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* ── PAINEL DE RECEITA ── */}
+      {tab === 'dashboard' && (
+        <div className="space-y-6">
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { label: 'MRR', value: formatCurrency(mrr), sub: 'Receita mensal recorrente', icon: TrendingUp, color: 'text-green-600' },
+              { label: 'ARR', value: formatCurrency(arr), sub: 'Receita anual projetada', icon: BarChart3, color: 'text-blue-600' },
+              { label: 'Ativos', value: totalActive, sub: 'Confeitarias ativas', icon: CheckCircle, color: 'text-green-600' },
+              { label: 'Inadimplentes', value: totalOverdue, sub: 'Precisam de atenção', icon: AlertTriangle, color: 'text-red-500' },
+            ].map(k => (
+              <div key={k.label} className="card">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-mocha-400 font-medium">{k.label}</p>
+                  <k.icon size={16} className={k.color} />
+                </div>
+                <p className={`font-display text-2xl font-black ${k.color}`}>{k.value}</p>
+                <p className="text-xs text-mocha-400 mt-1">{k.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Por plano */}
+          <div className="card">
+            <h3 className="font-display font-semibold text-mocha-900 mb-4">Distribuição por Plano</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {PLANS.map(plan => {
+                const row = revenue?.byPlan?.find((p: any) => p.plan === plan.id)
+                const count = Number(row?.tenant_count || 0)
+                const planMrr = Number(row?.mrr || 0)
+                return (
+                  <div key={plan.id} className={`rounded-2xl border-2 ${plan.border} p-4`}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center text-sm`}>{plan.icon}</div>
+                      <span className="font-semibold text-mocha-900">{plan.name}</span>
+                    </div>
+                    <p className="font-display text-3xl font-black text-mocha-900">{count}</p>
+                    <p className="text-xs text-mocha-400 mb-2">{count === 1 ? 'confeitaria' : 'confeitarias'}</p>
+                    <div className="border-t border-cream-100 pt-2">
+                      <p className="text-sm font-semibold text-mocha-700">{formatCurrency(planMrr)}<span className="text-xs font-normal text-mocha-400">/mês</span></p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Crescimento mensal */}
+          {revenue?.monthlyGrowth?.length > 0 && (
+            <div className="card">
+              <h3 className="font-display font-semibold text-mocha-900 mb-4">Novos clientes por mês</h3>
+              <div className="flex items-end gap-2 h-32">
+                {revenue.monthlyGrowth.map((m: any) => {
+                  const max = Math.max(...revenue.monthlyGrowth.map((x: any) => x.new_tenants), 1)
+                  const pct = (m.new_tenants / max) * 100
+                  return (
+                    <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
+                      <span className="text-xs font-bold text-mocha-700">{m.new_tenants}</span>
+                      <div className="w-full rounded-t-lg bg-chocolate-700 transition-all" style={{ height: `${Math.max(pct, 4)}%` }} />
+                      <span className="text-[10px] text-mocha-400">{m.month.split('-')[1]}/{m.month.split('-')[0].slice(2)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Assinaturas recentes */}
+          <div className="card">
+            <h3 className="font-display font-semibold text-mocha-900 mb-4">Assinaturas Recentes</h3>
+            {revenue?.recentSubs?.length === 0
+              ? <p className="text-sm text-mocha-400 text-center py-6">Nenhuma assinatura ainda</p>
+              : <div className="space-y-2">
+                  {revenue?.recentSubs?.map((s: any) => (
+                    <div key={s.id} className="flex items-center justify-between py-2 border-b border-cream-100 last:border-0">
+                      <div>
+                        <p className="text-sm font-medium text-mocha-800">{s.tenant_name}</p>
+                        <p className="text-xs text-mocha-400">{s.billing_cycle} · {formatDate(s.created_at)}</p>
+                      </div>
+                      <div className="text-right">
+                        <PlanBadge plan={s.plan} />
+                        <p className="text-xs text-mocha-500 mt-1">{formatCurrency(s.price_per_month)}/mês</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+            }
+          </div>
+        </div>
+      )}
+
+      {/* ── CONFEITARIAS ── */}
+      {tab === 'tenants' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-3">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mocha-300" />
+              <input type="text" placeholder="Buscar por nome ou email..." value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 input text-sm" />
+            </div>
+            <select value={filterPlan} onChange={e => setFilterPlan(e.target.value)} className="input text-sm">
+              <option value="todos">Todos os planos</option>
+              {PLANS.map(p => <option key={p.id} value={p.id}>{p.icon} {p.name}</option>)}
+            </select>
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="input text-sm">
+              <option value="todos">Todos os status</option>
+              {Object.entries(STATUS_MAP).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+
+          <p className="text-sm text-mocha-400">{filteredTenants.length} confeitaria{filteredTenants.length !== 1 ? 's' : ''}</p>
+
+          <div className="space-y-3">
+            {filteredTenants.map(t => (
+              <div key={t.id} className="card hover:shadow-warm-lg transition-shadow">
+                <div className="flex items-start gap-4">
+                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-cream-200 to-cream-100 flex items-center justify-center text-xl flex-shrink-0">🎂</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <h3 className="font-semibold text-mocha-900 truncate">{t.name}</h3>
+                      <PlanBadge plan={t.plan} />
+                      <StatusBadge status={t.plan_status} />
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-mocha-400">
+                      <span className="flex items-center gap-1"><Mail size={10} /> {t.email}</span>
+                      <span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(t.created_at)}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-4 mt-2">
+                      {[
+                        { icon: Package, label: 'pedidos', value: t.total_orders },
+                        { icon: Users, label: 'clientes', value: t.total_clients },
+                        { icon: DollarSign, label: 'faturamento', value: formatCurrency(t.total_revenue || 0) },
+                      ].map(kpi => (
+                        <div key={kpi.label} className="flex items-center gap-1.5">
+                          <kpi.icon size={12} className="text-mocha-300" />
+                          <span className="text-xs font-semibold text-mocha-700">{kpi.value}</span>
+                          <span className="text-xs text-mocha-400">{kpi.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <TenantActions tenant={t} onUpdate={load} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── ASSINATURAS ── */}
+      {tab === 'subscriptions' && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <p className="text-sm text-mocha-400">{subs.length} assinatura{subs.length !== 1 ? 's' : ''}</p>
+            <button onClick={() => setShowSubForm(true)}
+              className="flex items-center gap-2 btn-primary text-sm px-4 py-2">
+              <Plus size={14} /> Nova Assinatura
+            </button>
+          </div>
+
+          {showSubForm && <SubForm tenants={tenants} onSave={async (data) => {
+            try {
+              await saApi.createSub(data)
+              toast.success('Assinatura criada!')
+              setShowSubForm(false)
+              load()
+            } catch { toast.error('Erro ao criar assinatura') }
+          }} onClose={() => setShowSubForm(false)} />}
+
+          <div className="space-y-3">
+            {subs.map(s => (
+              <div key={s.id} className="card">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-semibold text-mocha-900 text-sm">{s.tenant_name}</span>
+                      <PlanBadge plan={s.plan} />
+                      <StatusBadge status={s.status} />
+                    </div>
+                    <div className="flex gap-4 text-xs text-mocha-400">
+                      <span>{s.billing_cycle} · {formatCurrency(s.price_per_month)}/mês</span>
+                      <span>Início: {formatDate(s.started_at)}</span>
+                      {s.expires_at && <span>Vence: {formatDate(s.expires_at)}</span>}
+                    </div>
+                    {s.notes && <p className="text-xs text-mocha-400 mt-1 italic">{s.notes}</p>}
+                  </div>
+                  <div className="flex gap-2">
+                    {s.status === 'active'
+                      ? <button onClick={async () => { await saApi.updateSub(s.id, 'cancelled'); load() }} className="text-xs text-red-400 hover:underline">Cancelar</button>
+                      : <button onClick={async () => { await saApi.updateSub(s.id, 'active'); load() }} className="text-xs text-green-600 hover:underline">Reativar</button>
+                    }
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── PLANOS ── */}
+      {tab === 'plans' && (
+        <div className="space-y-6">
+          <div className="card">
+            <h3 className="font-display text-lg font-bold text-mocha-900 mb-1">Tabela de Planos SweetFlow</h3>
+            <p className="text-mocha-400 text-sm mb-5">Funcionalidades disponíveis em cada plano. Use isso para comercializar o produto.</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {PLANS.map(plan => (
+                <div key={plan.id} className={`rounded-2xl border-2 ${plan.border} overflow-hidden`}>
+                  <div className={`bg-gradient-to-br ${plan.color} p-4 text-white`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{plan.icon}</span>
+                        <span className="font-display font-bold text-lg">{plan.name}</span>
+                      </div>
+                      {(plan as any).popular && <span className="bg-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">POPULAR</span>}
+                    </div>
+                    <p className="font-display text-3xl font-black">{formatCurrency(plan.price)}<span className="text-sm font-normal opacity-80">/mês</span></p>
+                    <div className="flex gap-3 mt-2 text-xs opacity-80">
+                      <span>👤 {plan.limits.users === 999999 ? '∞' : plan.limits.users} usuário{plan.limits.users !== 1 ? 's' : ''}</span>
+                      <span>📦 {plan.limits.products === 999999 ? '∞' : plan.limits.products} produtos</span>
+                      <span>📋 {plan.limits.orders === 999999 ? '∞' : plan.limits.orders} pedidos/mês</span>
+                    </div>
+                  </div>
+                  <div className="p-4 space-y-1.5">
+                    {plan.features.map((f, i) => (
+                      <p key={i} className={`text-xs ${f.startsWith('✅') ? 'text-mocha-700' : 'text-mocha-300'}`}>{f}</p>
+                    ))}
+                  </div>
+                  <div className="px-4 pb-4">
+                    <div className="border-t border-cream-100 pt-3">
+                      <p className="text-xs font-semibold text-mocha-500 mb-1">Ciclos de cobrança:</p>
+                      {BILLING_CYCLES.map(c => {
+                        const discounted = c.discount > 0 ? plan.price * (1 - c.discount / 100) : plan.price
+                        return (
+                          <div key={c.id} className="flex justify-between text-xs text-mocha-600 py-0.5">
+                            <span>{c.label}</span>
+                            <span className="font-semibold">{formatCurrency(discounted)}/mês</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Tabela comparativa */}
+          <div className="card overflow-x-auto">
+            <h3 className="font-display font-semibold text-mocha-900 mb-4">Tabela Comparativa</h3>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-cream-100">
+                  <th className="text-left text-mocha-500 font-medium pb-3">Funcionalidade</th>
+                  {PLANS.map(p => <th key={p.id} className="text-center pb-3"><PlanBadge plan={p.id} /></th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ['Dashboard KPIs', '✅', '✅', '✅'],
+                  ['Gráficos e Analytics', '❌', '✅', '✅'],
+                  ['Top Produtos/Clientes', '❌', '✅', '✅'],
+                  ['Pedidos/mês', '50', '300', '∞'],
+                  ['Usuários', '1', '5', '∞'],
+                  ['Produtos', '30', '200', '∞'],
+                  ['Clientes', '100', '500', '∞'],
+                  ['Catálogo E-commerce', '✅', '✅', '✅'],
+                  ['Checkout Online (Stripe/MP/Pagar.me)', '❌', '✅', '✅'],
+                  ['Conta do Cliente Final', '❌', '✅', '✅'],
+                  ['Precificação Inteligente', '❌', '✅', '✅'],
+                  ['Notificações Telegram', '❌', '✅', '✅'],
+                  ['Automações Zapier', '❌', '✅', '✅'],
+                  ['Auditoria de Ações', '❌', '❌', '✅'],
+                  ['Integração iFood (beta)', '❌', '❌', '✅'],
+                  ['Suporte', 'Email', 'Email+Chat', 'Prioritário 24h'],
+                ].map(([feat, eco, std, prem]) => (
+                  <tr key={feat} className="border-b border-cream-50 hover:bg-cream-50">
+                    <td className="py-2 pr-4 text-mocha-700">{feat}</td>
+                    {[eco, std, prem].map((v, i) => (
+                      <td key={i} className={`text-center py-2 font-medium ${v === '✅' ? 'text-green-600' : v === '❌' ? 'text-gray-300' : 'text-mocha-700'}`}>{v}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function PlanCard({ plan, isEditing, onEdit, onSave, onCancel }: any) {
-  const [price, setPrice] = useState(plan.price)
-  const [features, setFeatures] = useState(plan.features)
-  const [newFeature, setNewFeature] = useState('')
+// ── Sub-componentes ───────────────────────────────────────────────────────
 
-  const handleSave = () => {
-    onSave({ ...plan, price: Number(price), features })
+function TenantActions({ tenant, onUpdate }: { tenant: any; onUpdate: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  async function changePlan(plan: string) {
+    setLoading(true)
+    try {
+      await api.put(`/superadmin/tenants/${tenant.id}/plan`, { plan, plan_status: 'active' })
+      toast.success(`Plano atualizado para ${plan}`)
+      onUpdate()
+    } catch { toast.error('Erro ao atualizar plano') } finally { setLoading(false); setOpen(false) }
   }
 
-  const removeFeature = (i: number) => setFeatures((f: string[]) => f.filter((_: string, idx: number) => idx !== i))
-  const addFeature = () => {
-    if (newFeature.trim()) { setFeatures((f: string[]) => [...f, newFeature.trim()]); setNewFeature('') }
+  async function changeStatus(status: string) {
+    setLoading(true)
+    try {
+      await api.put(`/superadmin/tenants/${tenant.id}/status`, { status })
+      toast.success(`Status atualizado para ${status}`)
+      onUpdate()
+    } catch { toast.error('Erro ao atualizar status') } finally { setLoading(false); setOpen(false) }
   }
 
   return (
-    <div className={`card relative overflow-hidden ${plan.popular ? 'ring-2 ring-amber-400' : ''}`}>
-      {plan.popular && (
-        <div className="absolute top-0 right-0 bg-amber-400 text-white text-xs font-bold px-3 py-1 rounded-bl-xl">
-          MAIS POPULAR
-        </div>
-      )}
-      <div className="flex items-center gap-3 mb-4">
-        <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${plan.color} flex items-center justify-center text-2xl`}>
-          {plan.icon}
-        </div>
-        <div>
-          <h3 className="font-display font-bold text-mocha-900 text-lg">{plan.name}</h3>
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${plan.badge}`}>{plan.id}</span>
-        </div>
-      </div>
-
-      {isEditing ? (
-        <div className="space-y-3">
-          <div>
-            <label className="label">Preço Mensal (R$)</label>
-            <input
-              type="number" step="0.01"
-              className="input"
-              value={price}
-              onChange={e => setPrice(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Funcionalidades</label>
-            <div className="space-y-1.5">
-              {features.map((f: string, i: number) => (
-                <div key={i} className="flex items-center gap-2 bg-cream-50 rounded-lg px-3 py-1.5">
-                  <span className="text-sm flex-1">{f}</span>
-                  <button onClick={() => removeFeature(i)} className="text-red-400 hover:text-red-600">
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-2 mt-2">
-              <input
-                className="input text-sm"
-                placeholder="Nova funcionalidade..."
-                value={newFeature}
-                onChange={e => setNewFeature(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addFeature()}
-              />
-              <button onClick={addFeature} className="btn-primary px-3 py-2 text-sm whitespace-nowrap">+ Add</button>
-            </div>
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button onClick={handleSave} className="btn-primary text-sm flex-1">Salvar</button>
-            <button onClick={onCancel} className="btn-secondary text-sm">Cancelar</button>
-          </div>
-        </div>
-      ) : (
+    <div className="relative">
+      <button onClick={() => setOpen(o => !o)} className="p-1.5 rounded-lg hover:bg-cream-100 transition">
+        {loading ? <Loader2 size={16} className="animate-spin text-mocha-400" /> : <MoreVertical size={16} className="text-mocha-400" />}
+      </button>
+      {open && (
         <>
-          <div className="mb-4">
-            <span className="font-display text-3xl font-bold text-mocha-900">
-              {formatCurrency(plan.price)}
-            </span>
-            <span className="text-mocha-400 text-sm">/mês</span>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-8 w-48 bg-white rounded-2xl shadow-warm-lg overflow-hidden z-50 border border-cream-100">
+            <div className="px-3 py-2 text-xs font-semibold text-mocha-400 border-b border-cream-100">Mudar Plano</div>
+            {['economico', 'standard', 'premium'].filter(p => p !== tenant.plan).map(p => {
+              const plan = PLANS.find(x => x.id === p)!
+              return (
+                <button key={p} onClick={() => changePlan(p)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-mocha-700 hover:bg-cream-50 transition">
+                  <span>{plan.icon}</span> {plan.name}
+                </button>
+              )
+            })}
+            <div className="px-3 py-2 text-xs font-semibold text-mocha-400 border-t border-cream-100">Status</div>
+            {tenant.plan_status !== 'active' && (
+              <button onClick={() => changeStatus('active')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-600 hover:bg-green-50 transition">
+                <CheckCircle size={14} /> Ativar
+              </button>
+            )}
+            {tenant.plan_status === 'active' && (
+              <button onClick={() => changeStatus('suspended')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-orange-600 hover:bg-orange-50 transition">
+                <Ban size={14} /> Suspender
+              </button>
+            )}
           </div>
-          <ul className="space-y-2 mb-4">
-            {plan.features.map((f: string, i: number) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-mocha-700">
-                <CheckCircle size={14} className="text-green-500 flex-shrink-0 mt-0.5" />
-                {f}
-              </li>
-            ))}
-          </ul>
-          <button onClick={onEdit} className="btn-secondary text-sm w-full flex items-center justify-center gap-2">
-            <Edit size={14} /> Editar Plano
-          </button>
         </>
       )}
     </div>
   )
 }
 
-function TenantModal({ tenant, onClose }: { tenant: any; onClose: () => void }) {
-  const [plan, setPlan] = useState(tenant.plan)
-  const [status, setStatus] = useState(tenant.plan_status)
+function SubForm({ tenants, onSave, onClose }: { tenants: any[]; onSave: (data: any) => Promise<void>; onClose: () => void }) {
+  const [form, setForm] = useState({ tenantId: '', plan: 'standard', billingCycle: 'mensal', notes: '', startedAt: new Date().toISOString().split('T')[0] })
+  const [saving, setSaving] = useState(false)
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-mocha-900/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
-        <div className="flex items-center justify-between p-6 border-b border-cream-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-chocolate-100 flex items-center justify-center text-xl">🏪</div>
-            <div>
-              <h3 className="font-display font-bold text-mocha-900">{tenant.name}</h3>
-              <p className="text-xs text-mocha-400">{tenant.slug}</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-cream-100 rounded-xl text-mocha-400"><X size={20} /></button>
-        </div>
+  const selectedPlan = PLANS.find(p => p.id === form.plan)
+  const selectedCycle = BILLING_CYCLES.find(c => c.id === form.billingCycle)!
+  const pricePerMonth = selectedPlan ? selectedPlan.price * (1 - selectedCycle.discount / 100) : 0
 
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-cream-50 rounded-xl p-3">
-              <p className="text-xs text-mocha-400">Email</p>
-              <p className="text-sm font-medium text-mocha-800 mt-1 truncate">{tenant.email}</p>
-            </div>
-            <div className="bg-cream-50 rounded-xl p-3">
-              <p className="text-xs text-mocha-400">Telefone</p>
-              <p className="text-sm font-medium text-mocha-800 mt-1">{tenant.phone}</p>
-            </div>
-            <div className="bg-cream-50 rounded-xl p-3">
-              <p className="text-xs text-mocha-400">Pedidos (mês)</p>
-              <p className="text-sm font-bold text-mocha-900 mt-1">{tenant.orders_this_month}</p>
-            </div>
-            <div className="bg-cream-50 rounded-xl p-3">
-              <p className="text-xs text-mocha-400">MRR</p>
-              <p className="text-sm font-bold text-mocha-900 mt-1">{formatCurrency(tenant.mrr)}</p>
-            </div>
-          </div>
-
-          <div>
-            <label className="label">Plano</label>
-            <select
-              className="input"
-              value={plan}
-              onChange={e => setPlan(e.target.value)}
-            >
-              <option value="economico">🌱 Econômico — R$ 49,90/mês</option>
-              <option value="standard">🎂 Standard — R$ 99,90/mês</option>
-              <option value="premium">👑 Premium — R$ 199,90/mês</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="label">Status da Assinatura</label>
-            <select
-              className="input"
-              value={status}
-              onChange={e => setStatus(e.target.value)}
-            >
-              <option value="active">✅ Ativo</option>
-              <option value="trial">🔵 Trial</option>
-              <option value="overdue">🔴 Inadimplente</option>
-              <option value="cancelled">⚫ Cancelado</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="flex gap-3 p-6 border-t border-cream-100">
-          <button
-            onClick={onClose}
-            className="btn-primary flex-1"
-          >
-            Salvar Alterações
-          </button>
-          <button onClick={onClose} className="btn-secondary">Cancelar</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Main ───────────────────────────────────────────────────────────────────
-export default function SuperAdminPage() {
-  const [tab, setTab] = useState<'overview' | 'subscriptions' | 'plans'>('overview')
-  const [search, setSearch] = useState('')
-  const [filterPlan, setFilterPlan] = useState('all')
-  const [filterStatus, setFilterStatus] = useState('all')
-  const [editingPlan, setEditingPlan] = useState<string | null>(null)
-  const [plans, setPlans] = useState(PLANS)
-  const [selectedTenant, setSelectedTenant] = useState<any>(null)
-
-  const totalMRR = MOCK_TENANTS.filter(t => t.plan_status === 'active').reduce((a, t) => a + t.mrr, 0)
-  const activeCount = MOCK_TENANTS.filter(t => t.plan_status === 'active').length
-  const overdueCount = MOCK_TENANTS.filter(t => t.plan_status === 'overdue').length
-  const totalTenants = MOCK_TENANTS.length
-
-  const filteredTenants = MOCK_TENANTS.filter(t => {
-    const matchSearch = t.name.toLowerCase().includes(search.toLowerCase()) ||
-      t.email.toLowerCase().includes(search.toLowerCase())
-    const matchPlan = filterPlan === 'all' || t.plan === filterPlan
-    const matchStatus = filterStatus === 'all' || t.plan_status === filterStatus
-    return matchSearch && matchPlan && matchStatus
-  })
-
-  const handleSavePlan = (updated: any) => {
-    setPlans(ps => ps.map(p => p.id === updated.id ? updated : p))
-    setEditingPlan(null)
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!form.tenantId) { toast.error('Selecione uma confeitaria'); return }
+    setSaving(true)
+    await onSave({ ...form, tenantId: Number(form.tenantId) })
+    setSaving(false)
   }
 
-  const TABS = [
-    { id: 'overview', label: 'Visão Geral', icon: TrendingUp },
-    { id: 'subscriptions', label: 'Assinaturas', icon: Users },
-    { id: 'plans', label: 'Planos & Preços', icon: Star },
-  ]
-
   return (
-    <div className="space-y-6">
-      {selectedTenant && (
-        <TenantModal tenant={selectedTenant} onClose={() => setSelectedTenant(null)} />
-      )}
-
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-chocolate-700 to-chocolate-900 flex items-center justify-center">
-          <Crown size={22} className="text-cream-100" />
+    <div className="card border-2 border-chocolate-200">
+      <h4 className="font-display font-semibold text-mocha-900 mb-4 flex items-center gap-2">
+        <Plus size={16} className="text-chocolate-600" /> Nova Assinatura
+      </h4>
+      <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
+        <div className="col-span-2">
+          <label className="label">Confeitaria</label>
+          <select value={form.tenantId} onChange={e => setForm(f => ({ ...f, tenantId: e.target.value }))} className="input" required>
+            <option value="">Selecione...</option>
+            {tenants.map(t => <option key={t.id} value={t.id}>{t.name} ({t.email})</option>)}
+          </select>
         </div>
         <div>
-          <h2 className="font-display text-2xl font-bold text-mocha-900">Super Admin</h2>
-          <p className="text-mocha-500 text-sm">Gerenciamento global do SaaS Confeitaria</p>
+          <label className="label">Plano</label>
+          <select value={form.plan} onChange={e => setForm(f => ({ ...f, plan: e.target.value }))} className="input">
+            {PLANS.map(p => <option key={p.id} value={p.id}>{p.icon} {p.name} — {formatCurrency(p.price)}/mês</option>)}
+          </select>
         </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-cream-100 rounded-xl w-fit">
-        {TABS.map(t => {
-          const Icon = t.icon
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id as any)}
-              className={clsx(
-                'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
-                tab === t.id
-                  ? 'bg-white text-chocolate-800 shadow-card'
-                  : 'text-mocha-500 hover:text-mocha-800'
-              )}
-            >
-              <Icon size={16} />
-              {t.label}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* ── Overview ──────────────────────────────────────── */}
-      {tab === 'overview' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <KPICard label="MRR Total" value={formatCurrency(totalMRR)} sub="Receita mensal recorrente" icon="💰" color="bg-green-100" />
-            <KPICard label="Clientes Ativos" value={activeCount} sub={`de ${totalTenants} total`} icon="🏪" color="bg-blue-100" />
-            <KPICard label="Inadimplentes" value={overdueCount} sub="Pagamento em atraso" icon="⚠️" color="bg-red-100" />
-            <KPICard label="ARR Projetado" value={formatCurrency(totalMRR * 12)} sub="Receita anual recorrente" icon="📈" color="bg-purple-100" />
-          </div>
-
-          {/* MRR por Plano */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="card">
-              <h3 className="font-display font-semibold text-mocha-900 mb-4">Distribuição por Plano</h3>
-              <div className="space-y-3">
-                {PLANS.map(plan => {
-                  const count = MOCK_TENANTS.filter(t => t.plan === plan.id && t.plan_status === 'active').length
-                  const mrr = MOCK_TENANTS.filter(t => t.plan === plan.id && t.plan_status === 'active').reduce((a, t) => a + t.mrr, 0)
-                  const pct = totalTenants > 0 ? (count / activeCount) * 100 : 0
-                  return (
-                    <div key={plan.id}>
-                      <div className="flex items-center justify-between text-sm mb-1">
-                        <span className="flex items-center gap-2">
-                          <span>{plan.icon}</span>
-                          <span className="font-medium text-mocha-800">{plan.name}</span>
-                          <span className="text-mocha-400">({count} clientes)</span>
-                        </span>
-                        <span className="font-semibold text-mocha-900">{formatCurrency(mrr)}/mês</span>
-                      </div>
-                      <div className="h-2 bg-cream-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full bg-gradient-to-r ${plan.color} transition-all duration-700`}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div className="card">
-              <h3 className="font-display font-semibold text-mocha-900 mb-4">Status das Assinaturas</h3>
-              <div className="grid grid-cols-2 gap-3">
-                {Object.entries(PLAN_STATUS).map(([key, val]) => {
-                  const Icon = val.icon
-                  const count = MOCK_TENANTS.filter(t => t.plan_status === key).length
-                  return (
-                    <div key={key} className={`rounded-xl px-4 py-3 ${val.color} bg-opacity-20`}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <Icon size={14} />
-                        <span className="text-xs font-semibold uppercase tracking-wide">{val.label}</span>
-                      </div>
-                      <p className="font-display text-2xl font-bold">{count}</p>
-                    </div>
-                  )
-                })}
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-cream-100">
-                <h4 className="text-sm font-medium text-mocha-700 mb-3">Ações rápidas</h4>
-                <div className="space-y-2">
-                  {MOCK_TENANTS.filter(t => t.plan_status === 'overdue').map(t => (
-                    <div key={t.id} className="flex items-center justify-between bg-red-50 rounded-xl px-3 py-2">
-                      <div>
-                        <p className="text-sm font-medium text-red-800">{t.name}</p>
-                        <p className="text-xs text-red-500">Pagamento em atraso</p>
-                      </div>
-                      <button
-                        onClick={() => setSelectedTenant(t)}
-                        className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-lg font-medium transition-colors"
-                      >
-                        Gerenciar
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+        <div>
+          <label className="label">Ciclo de Cobrança</label>
+          <select value={form.billingCycle} onChange={e => setForm(f => ({ ...f, billingCycle: e.target.value }))} className="input">
+            {BILLING_CYCLES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">Data de Início</label>
+          <input type="date" value={form.startedAt} onChange={e => setForm(f => ({ ...f, startedAt: e.target.value }))} className="input" />
+        </div>
+        <div className="flex items-end">
+          <div className="rounded-xl bg-cream-50 px-4 py-2.5 w-full text-center">
+            <p className="text-xs text-mocha-400">Valor mensal</p>
+            <p className="font-display font-bold text-chocolate-700 text-lg">{formatCurrency(pricePerMonth)}</p>
+            {selectedCycle.discount > 0 && <p className="text-xs text-green-600">-{selectedCycle.discount}% de desconto</p>}
           </div>
         </div>
-      )}
-
-      {/* ── Subscriptions ────────────────────────────────── */}
-      {tab === 'subscriptions' && (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-mocha-400" />
-              <input
-                className="input pl-9"
-                placeholder="Buscar por nome ou email..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-            <select className="input w-auto" value={filterPlan} onChange={e => setFilterPlan(e.target.value)}>
-              <option value="all">Todos os Planos</option>
-              <option value="economico">🌱 Econômico</option>
-              <option value="standard">🎂 Standard</option>
-              <option value="premium">👑 Premium</option>
-            </select>
-            <select className="input w-auto" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-              <option value="all">Todos os Status</option>
-              <option value="active">Ativo</option>
-              <option value="trial">Trial</option>
-              <option value="overdue">Inadimplente</option>
-              <option value="cancelled">Cancelado</option>
-            </select>
-          </div>
-
-          <div className="card p-0 overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-cream-50 border-b border-cream-100">
-                <tr>
-                  <th className="table-th">Confeitaria</th>
-                  <th className="table-th hidden md:table-cell">Contato</th>
-                  <th className="table-th">Plano</th>
-                  <th className="table-th">Status</th>
-                  <th className="table-th hidden lg:table-cell">Pedidos (mês)</th>
-                  <th className="table-th hidden lg:table-cell">MRR</th>
-                  <th className="table-th hidden xl:table-cell">Desde</th>
-                  <th className="table-th w-12"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTenants.map(tenant => {
-                  const statusInfo = PLAN_STATUS[tenant.plan_status as keyof typeof PLAN_STATUS]
-                  const StatusIcon = statusInfo.icon
-                  return (
-                    <tr key={tenant.id} className="table-tr">
-                      <td className="table-td">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-chocolate-100 flex items-center justify-center text-sm flex-shrink-0">
-                            🏪
-                          </div>
-                          <div>
-                            <p className="font-medium text-mocha-900">{tenant.name}</p>
-                            <p className="text-xs text-mocha-400">{tenant.slug}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="table-td hidden md:table-cell">
-                        <p className="text-xs text-mocha-600">{tenant.email}</p>
-                        <p className="text-xs text-mocha-400">{tenant.phone}</p>
-                      </td>
-                      <td className="table-td">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${PLAN_COLORS[tenant.plan]}`}>
-                          {tenant.plan === 'economico' ? '🌱' : tenant.plan === 'standard' ? '🎂' : '👑'}
-                          {tenant.plan.charAt(0).toUpperCase() + tenant.plan.slice(1)}
-                        </span>
-                      </td>
-                      <td className="table-td">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusInfo.color}`}>
-                          <StatusIcon size={11} />
-                          {statusInfo.label}
-                        </span>
-                      </td>
-                      <td className="table-td hidden lg:table-cell font-medium">{tenant.orders_this_month}</td>
-                      <td className="table-td hidden lg:table-cell font-semibold text-green-700">
-                        {tenant.plan_status === 'cancelled' ? '—' : formatCurrency(tenant.mrr)}
-                      </td>
-                      <td className="table-td hidden xl:table-cell text-mocha-400 text-xs">
-                        {formatDate(tenant.created_at)}
-                      </td>
-                      <td className="table-td">
-                        <button
-                          onClick={() => setSelectedTenant(tenant)}
-                          className="p-2 hover:bg-cream-100 rounded-xl text-mocha-400 hover:text-mocha-700 transition-colors"
-                        >
-                          <Edit size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-                {filteredTenants.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="text-center py-12 text-mocha-400">
-                      Nenhuma confeitaria encontrada
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+        <div className="col-span-2">
+          <label className="label">Observações (opcional)</label>
+          <input type="text" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Ex: assinatura da Black Friday" className="input" />
         </div>
-      )}
-
-      {/* ── Plans ───────────────────────────────────────── */}
-      {tab === 'plans' && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <p className="text-mocha-600 text-sm">Configure os planos e preços do seu SaaS</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {plans.map(plan => (
-              <PlanCard
-                key={plan.id}
-                plan={plan}
-                isEditing={editingPlan === plan.id}
-                onEdit={() => setEditingPlan(plan.id)}
-                onCancel={() => setEditingPlan(null)}
-                onSave={handleSavePlan}
-              />
-            ))}
-          </div>
-
-          <div className="card bg-chocolate-900 text-cream-50">
-            <div className="flex items-center gap-3 mb-3">
-              <Shield size={20} className="text-amber-400" />
-              <h3 className="font-display font-semibold">Dica de Precificação</h3>
-            </div>
-            <p className="text-chocolate-200 text-sm leading-relaxed">
-              Com base no mercado brasileiro de SaaS para confeitaria, o plano{' '}
-              <strong className="text-amber-400">Standard (R$ 99,90)</strong> tende a converter melhor.
-              O plano Econômico funciona bem como porta de entrada, e o Premium deve ter valor percebido
-              claro — como IA de previsão e automação WhatsApp — para justificar o investimento.
-            </p>
-          </div>
+        <div className="col-span-2 flex gap-3 justify-end">
+          <button type="button" onClick={onClose} className="btn-secondary px-4 py-2 text-sm">Cancelar</button>
+          <button type="submit" disabled={saving} className="btn-primary px-4 py-2 text-sm flex items-center gap-2">
+            {saving && <Loader2 size={14} className="animate-spin" />} Criar Assinatura
+          </button>
         </div>
-      )}
+      </form>
     </div>
   )
 }
