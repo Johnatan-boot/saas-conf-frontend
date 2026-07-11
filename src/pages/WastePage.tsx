@@ -1,283 +1,163 @@
-import React, { useState } from 'react'
-import { Trash2, Plus, TrendingDown, AlertTriangle, Package, BarChart2, X, Edit } from 'lucide-react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { Trash2, AlertTriangle, Package, TrendingDown, RefreshCw, CheckCircle, Clock } from 'lucide-react'
+import api from '../services/api'
 import { formatCurrency } from '../utils'
-import { clsx } from '../utils'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts'
+import { LoadingPage, EmptyState } from '../components/ui'
 
-const MOCK_WASTE = [
-  { id: 1, ingredient: 'Farinha de Trigo', unit: 'kg', qty_wasted: 2.5, unit_cost: 4.50, reason: 'Validade vencida', date: '2025-05-04', batch: 'Bolo Red Velvet', loss: 11.25 },
-  { id: 2, ingredient: 'Chantilly', unit: 'L', qty_wasted: 0.8, unit_cost: 18.00, reason: 'Erro de produção', date: '2025-05-03', batch: 'Torta de Morango', loss: 14.40 },
-  { id: 3, ingredient: 'Chocolate Belga', unit: 'kg', qty_wasted: 0.3, unit_cost: 85.00, reason: 'Queimado', date: '2025-05-02', batch: 'Trufa Premium', loss: 25.50 },
-  { id: 4, ingredient: 'Manteiga', unit: 'kg', qty_wasted: 0.5, unit_cost: 32.00, reason: 'Derreteu / temperatura', date: '2025-05-01', batch: 'Croissant', loss: 16.00 },
-  { id: 5, ingredient: 'Morango', unit: 'kg', qty_wasted: 1.2, unit_cost: 25.00, reason: 'Compra excessiva', date: '2025-04-30', batch: 'Cheesecake', loss: 30.00 },
-  { id: 6, ingredient: 'Leite condensado', unit: 'un', qty_wasted: 3, unit_cost: 8.50, reason: 'Validade vencida', date: '2025-04-29', batch: 'Brigadeiro', loss: 25.50 },
-]
-
-const WASTE_REASONS = [
-  { reason: 'Validade vencida', total: 36.75, color: '#ef4444' },
-  { reason: 'Erro de produção', total: 14.40, color: '#f97316' },
-  { reason: 'Queimado', total: 25.50, color: '#eab308' },
-  { reason: 'Temperatura', total: 16.00, color: '#8b5cf6' },
-  { reason: 'Compra excessiva', total: 30.00, color: '#3b82f6' },
-  { reason: 'Outros', total: 25.50, color: '#6b7280' },
-]
-
-const TREND_DATA = [
-  { week: 'Sem 1', loss: 52 },
-  { week: 'Sem 2', loss: 87 },
-  { week: 'Sem 3', loss: 43 },
-  { week: 'Sem 4', loss: 68 },
-  { week: 'Sem 5', loss: 148 },
-  { week: 'Sem 6', loss: 122 },
-  { week: 'Sem 7', loss: 95 },
-  { week: 'Sem 8', loss: 148.15 },
-]
-
-const REASON_OPTIONS = [
-  'Validade vencida', 'Erro de produção', 'Queimado',
-  'Derreteu / temperatura', 'Compra excessiva', 'Pedido cancelado', 'Outros'
-]
+function urgency(days: number): { label: string; color: string; bg: string; icon: React.ReactNode } {
+  if (days > 30)  return { label: 'Crítico',   color: 'text-red-600',    bg: 'bg-red-50 border-red-200',    icon: <AlertTriangle size={14} className="text-red-500" /> }
+  if (days > 14)  return { label: 'Atenção',   color: 'text-amber-600',  bg: 'bg-amber-50 border-amber-200',  icon: <Clock size={14} className="text-amber-500" /> }
+  return { label: 'Moderado', color: 'text-slate-600', bg: 'bg-slate-50 border-slate-200', icon: <TrendingDown size={14} className="text-slate-400" /> }
+}
 
 export default function WastePage() {
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({
-    ingredient: '', unit: 'kg', qty_wasted: '', unit_cost: '', reason: '', batch: ''
-  })
-  const [records, setRecords] = useState(MOCK_WASTE)
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [sort, setSort] = useState<'days' | 'value'>('value')
 
-  const totalLoss = records.reduce((a, r) => a + r.loss, 0)
-  const avgLoss = totalLoss / (TREND_DATA.length || 1)
-  const topWaste = [...records].sort((a, b) => b.loss - a.loss)[0]
+  const fetch = useCallback(() => {
+    setLoading(true)
+    api.get('/dashboard/waste')
+      .then(r => setData(r.data.data))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
 
-  const handleAdd = () => {
-    if (!form.ingredient || !form.qty_wasted || !form.unit_cost) return
-    const qty = Number(form.qty_wasted)
-    const cost = Number(form.unit_cost)
-    const newRecord = {
-      id: Date.now(),
-      ingredient: form.ingredient,
-      unit: form.unit,
-      qty_wasted: qty,
-      unit_cost: cost,
-      reason: form.reason || 'Outros',
-      date: new Date().toISOString().split('T')[0],
-      batch: form.batch || 'Não especificado',
-      loss: qty * cost,
-    }
-    setRecords(r => [newRecord, ...r])
-    setForm({ ingredient: '', unit: 'kg', qty_wasted: '', unit_cost: '', reason: '', batch: '' })
-    setShowForm(false)
-  }
+  useEffect(() => { fetch() }, [fetch])
 
-  const handleDelete = (id: number) => setRecords(r => r.filter(rec => rec.id !== id))
+  if (loading) return <LoadingPage />
+
+  const products: any[] = data?.products || []
+  const summary = data?.summary || {}
+
+  const sorted = [...products].sort((a, b) =>
+    sort === 'days'
+      ? Number(b.days_without_sale || 0) - Number(a.days_without_sale || 0)
+      : Number(b.stock_value || 0) - Number(a.stock_value || 0)
+  )
+
+  const totalStockValue = Number(summary.total_stock_value || 0)
+  const wasteValue = products.reduce((acc, p) => acc + Number(p.stock_value || 0), 0)
+  const critical = products.filter(p => Number(p.days_without_sale) > 30).length
+  const attention = products.filter(p => Number(p.days_without_sale) > 14 && Number(p.days_without_sale) <= 30).length
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-display text-2xl font-bold text-mocha-900">Controle de Desperdício</h2>
-          <p className="text-mocha-500 text-sm">Identifique onde seu dinheiro está sendo perdido</p>
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center">
+            <Trash2 size={22} className="text-white" />
+          </div>
+          <div>
+            <h2 className="font-display text-2xl font-bold text-mocha-900">Controle de Desperdício</h2>
+            <p className="text-mocha-500 text-sm">Produtos em estoque sem movimentação recente</p>
+          </div>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="btn-primary flex items-center gap-2"
-        >
-          <Plus size={16} /> Registrar Desperdício
+        <button onClick={fetch} className="p-2 rounded-xl bg-cream-100 hover:bg-cream-200 transition">
+          <RefreshCw size={14} className="text-mocha-500" />
         </button>
       </div>
 
-      {/* Modal */}
-      {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-mocha-900/60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between p-6 border-b border-cream-100">
-              <h3 className="font-display font-bold text-mocha-900">Registrar Desperdício</h3>
-              <button onClick={() => setShowForm(false)} className="p-2 hover:bg-cream-100 rounded-xl"><X size={18} /></button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2">
-                  <label className="label">Ingrediente</label>
-                  <input className="input" placeholder="Ex: Farinha de Trigo" value={form.ingredient}
-                    onChange={e => setForm(f => ({ ...f, ingredient: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="label">Quantidade Perdida</label>
-                  <input className="input" type="number" step="0.01" placeholder="0.00" value={form.qty_wasted}
-                    onChange={e => setForm(f => ({ ...f, qty_wasted: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="label">Unidade</label>
-                  <select className="input" value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}>
-                    {['kg', 'g', 'L', 'mL', 'un', 'cx', 'pct'].map(u => <option key={u}>{u}</option>)}
-                  </select>
-                </div>
-                <div className="col-span-2">
-                  <label className="label">Custo por Unidade (R$)</label>
-                  <input className="input" type="number" step="0.01" placeholder="0.00" value={form.unit_cost}
-                    onChange={e => setForm(f => ({ ...f, unit_cost: e.target.value }))} />
-                </div>
-                <div className="col-span-2">
-                  <label className="label">Motivo</label>
-                  <select className="input" value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}>
-                    <option value="">Selecionar...</option>
-                    {REASON_OPTIONS.map(r => <option key={r}>{r}</option>)}
-                  </select>
-                </div>
-                <div className="col-span-2">
-                  <label className="label">Produção Relacionada (opcional)</label>
-                  <input className="input" placeholder="Ex: Bolo Red Velvet" value={form.batch}
-                    onChange={e => setForm(f => ({ ...f, batch: e.target.value }))} />
-                </div>
-                {form.qty_wasted && form.unit_cost && (
-                  <div className="col-span-2 bg-red-50 border border-red-100 rounded-xl p-3">
-                    <p className="text-xs text-red-500">Prejuízo calculado</p>
-                    <p className="font-display font-bold text-red-700 text-xl mt-0.5">
-                      {formatCurrency(Number(form.qty_wasted) * Number(form.unit_cost))}
-                    </p>
-                  </div>
-                )}
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'Valor Total em Estoque', value: formatCurrency(totalStockValue), color: 'text-mocha-900', sub: `${summary.total_products_in_stock || 0} produtos` },
+          { label: 'Capital Parado', value: formatCurrency(wasteValue), color: 'text-amber-600', sub: 'sem venda +7 dias' },
+          { label: 'Situação Crítica', value: critical, color: 'text-red-600', sub: '+30 dias sem venda' },
+          { label: 'Atenção', value: attention, color: 'text-amber-600', sub: '14–30 dias sem venda' },
+        ].map(k => (
+          <div key={k.label} className="card">
+            <p className="text-xs text-mocha-400 font-medium">{k.label}</p>
+            <p className={`font-display text-2xl font-black mt-1 ${k.color}`}>{k.value}</p>
+            <p className="text-xs text-mocha-300 mt-0.5">{k.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {products.length === 0 ? (
+        <div className="card text-center py-12">
+          <CheckCircle size={40} className="text-green-500 mx-auto mb-3" />
+          <h3 className="font-display font-semibold text-mocha-900 text-lg">Estoque saudável!</h3>
+          <p className="text-mocha-400 text-sm mt-1">Todos os produtos estão com boa movimentação. Continue assim!</p>
+        </div>
+      ) : (
+        <>
+          {/* Alerta resumo */}
+          {critical > 0 && (
+            <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-2xl">
+              <AlertTriangle size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-red-700">{critical} produto{critical > 1 ? 's' : ''} sem venda há mais de 30 dias</p>
+                <p className="text-xs text-red-500 mt-0.5">Capital parado de {formatCurrency(products.filter(p => Number(p.days_without_sale) > 30).reduce((a, p) => a + Number(p.stock_value || 0), 0))} — considere promoção ou descarte</p>
               </div>
             </div>
-            <div className="flex gap-3 p-6 border-t border-cream-100">
-              <button onClick={handleAdd} className="btn-primary flex-1">Registrar</button>
-              <button onClick={() => setShowForm(false)} className="btn-secondary">Cancelar</button>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="card border-l-4 border-red-400">
-          <p className="text-xs font-medium text-mocha-400 uppercase tracking-wider">Perda Total (mês)</p>
-          <p className="font-display text-2xl font-bold text-red-600 mt-1">{formatCurrency(totalLoss)}</p>
-          <p className="text-xs text-mocha-400 mt-1">Em {records.length} registros</p>
-        </div>
-        <div className="card border-l-4 border-orange-400">
-          <p className="text-xs font-medium text-mocha-400 uppercase tracking-wider">Maior Prejuízo</p>
-          <p className="font-display text-2xl font-bold text-orange-600 mt-1">{topWaste ? topWaste.ingredient : '—'}</p>
-          <p className="text-xs text-mocha-400 mt-1">{topWaste ? formatCurrency(topWaste.loss) : ''}</p>
-        </div>
-        <div className="card border-l-4 border-yellow-400">
-          <p className="text-xs font-medium text-mocha-400 uppercase tracking-wider">Impacto na Margem</p>
-          <p className="font-display text-2xl font-bold text-yellow-700 mt-1">-{formatCurrency(avgLoss)}</p>
-          <p className="text-xs text-mocha-400 mt-1">Média por semana</p>
-        </div>
-      </div>
-
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card">
-          <h3 className="font-display font-semibold text-mocha-900 mb-4">Tendência de Perdas (8 semanas)</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={TREND_DATA}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0e8dc" />
-              <XAxis dataKey="week" tick={{ fontSize: 10, fill: '#9a7e5a' }} />
-              <YAxis tick={{ fontSize: 11, fill: '#9a7e5a' }} tickFormatter={v => `R$${v}`} />
-              <Tooltip
-                contentStyle={{ background: '#2c1c12', color: '#fdf6f0', border: 'none', borderRadius: 12 }}
-                formatter={(v: any) => formatCurrency(v)}
-              />
-              <Line type="monotone" dataKey="loss" stroke="#ef4444" strokeWidth={2.5} dot={{ fill: '#ef4444', r: 4 }} name="Perda" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="card">
-          <h3 className="font-display font-semibold text-mocha-900 mb-4">Perda por Motivo (R$)</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={WASTE_REASONS} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0e8dc" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 10, fill: '#9a7e5a' }} tickFormatter={v => `R$${v}`} />
-              <YAxis type="category" dataKey="reason" tick={{ fontSize: 10, fill: '#9a7e5a' }} width={100} />
-              <Tooltip
-                contentStyle={{ background: '#2c1c12', color: '#fdf6f0', border: 'none', borderRadius: 12 }}
-                formatter={(v: any) => formatCurrency(v)}
-              />
-              <Bar dataKey="total" radius={[0, 4, 4, 0]} name="Perda">
-                {WASTE_REASONS.map((entry, i) => (
-                  <React.Fragment key={i}>
-                    {/* @ts-ignore */}
-                    <rect fill={entry.color} />
-                  </React.Fragment>
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="flex flex-wrap gap-2 mt-3">
-            {WASTE_REASONS.map(r => (
-              <span key={r.reason} className="flex items-center gap-1 text-xs text-mocha-500">
-                <span className="w-2 h-2 rounded-full inline-block" style={{ background: r.color }} />
-                {r.reason}
-              </span>
+          {/* Ordenação */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-mocha-400">Ordenar por:</span>
+            {[['value', 'Valor parado'], ['days', 'Dias sem venda']].map(([id, label]) => (
+              <button key={id} onClick={() => setSort(id as any)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition ${sort === id ? 'bg-chocolate-800 text-white' : 'bg-cream-100 text-mocha-600 hover:bg-cream-200'}`}>
+                {label}
+              </button>
             ))}
           </div>
-        </div>
-      </div>
 
-      {/* Records table */}
-      <div className="card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-cream-100 flex items-center justify-between">
-          <h3 className="font-display font-semibold text-mocha-900">Registros de Desperdício</h3>
-          <span className="text-xs text-mocha-400">{records.length} registros</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-cream-50">
-              <tr>
-                <th className="table-th">Ingrediente</th>
-                <th className="table-th">Quantidade</th>
-                <th className="table-th hidden md:table-cell">Motivo</th>
-                <th className="table-th hidden lg:table-cell">Produção</th>
-                <th className="table-th hidden md:table-cell">Data</th>
-                <th className="table-th text-right">Prejuízo</th>
-                <th className="table-th w-12"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {records.map(r => (
-                <tr key={r.id} className="table-tr">
-                  <td className="table-td font-medium text-mocha-900">{r.ingredient}</td>
-                  <td className="table-td">{r.qty_wasted} {r.unit}</td>
-                  <td className="table-td hidden md:table-cell">
-                    <span className="px-2 py-0.5 bg-red-50 text-red-600 text-xs rounded-lg">{r.reason}</span>
-                  </td>
-                  <td className="table-td hidden lg:table-cell text-mocha-400 text-xs">{r.batch}</td>
-                  <td className="table-td hidden md:table-cell text-mocha-400 text-xs">{r.date}</td>
-                  <td className="table-td text-right font-bold text-red-600">{formatCurrency(r.loss)}</td>
-                  <td className="table-td">
-                    <button onClick={() => handleDelete(r.id)} className="p-1.5 hover:bg-red-50 text-mocha-300 hover:text-red-500 rounded-lg transition-colors">
-                      <Trash2 size={14} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot className="bg-cream-50 border-t-2 border-cream-200">
-              <tr>
-                <td className="table-td font-bold text-mocha-900" colSpan={5}>Total de Perdas</td>
-                <td className="table-td text-right font-display font-bold text-red-600 text-base">{formatCurrency(totalLoss)}</td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
+          {/* Lista de produtos */}
+          <div className="space-y-3">
+            {sorted.map((p: any) => {
+              const days = Number(p.days_without_sale || 0)
+              const urg = urgency(days)
+              return (
+                <div key={p.id} className={`card border ${urg.bg}`}>
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-white border border-cream-200 flex items-center justify-center text-xl flex-shrink-0">
+                      📦
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold text-mocha-900">{p.name}</h3>
+                        <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-white border ${urg.bg}`}>
+                          {urg.icon} {urg.label}
+                        </span>
+                        {p.category && <span className="text-xs text-mocha-400 bg-cream-100 px-2 py-0.5 rounded-full">{p.category}</span>}
+                      </div>
+                      <div className="flex flex-wrap gap-4 mt-1.5 text-xs text-mocha-500">
+                        <span>Estoque: <strong className="text-mocha-700">{p.stock} un</strong></span>
+                        <span>Custo unit: <strong>{formatCurrency(Number(p.cost_price || 0))}</strong></span>
+                        <span>Valor parado: <strong className={urg.color}>{formatCurrency(Number(p.stock_value || 0))}</strong></span>
+                        <span className={`font-medium ${urg.color}`}>
+                          {days > 900 ? 'Nunca vendido' : `${days} dia${days !== 1 ? 's' : ''} sem venda`}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className={`font-display font-bold ${urg.color}`}>{formatCurrency(Number(p.stock_value || 0))}</p>
+                      <p className="text-xs text-mocha-400">capital parado</p>
+                      <p className="text-xs text-mocha-300 mt-0.5">Venda sugerida: {formatCurrency(Number(p.price || 0))}</p>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
 
-      {/* Tips */}
-      <div className="card bg-amber-50 border-amber-200">
-        <div className="flex items-center gap-2 mb-3">
-          <AlertTriangle size={18} className="text-amber-600" />
-          <h4 className="font-semibold text-amber-800">Alertas e Sugestões da IA</h4>
-        </div>
-        <div className="space-y-2 text-sm text-amber-700">
-          <p>🔴 <strong>Morango</strong> representa 20% do desperdício — considere pedidos menores e mais frequentes.</p>
-          <p>🟡 <strong>Leite condensado</strong> com validade vencida 2x seguidas — revise o ponto de pedido.</p>
-          <p>🟢 Implementar FIFO (primeiro a entrar, primeiro a sair) pode reduzir perdas por validade em ~40%.</p>
-        </div>
-      </div>
+          {/* Sugestões */}
+          <div className="card bg-mocha-900 text-cream-50">
+            <h3 className="font-semibold mb-3 flex items-center gap-2">
+              <Package size={16} className="text-amber-400" /> Sugestões para reduzir desperdício
+            </h3>
+            <ul className="space-y-2 text-sm text-chocolate-200">
+              <li>🎁 Ofereça combo com produtos parados: "Leve 2, pague 1" para girar estoque</li>
+              <li>📱 Use o WhatsApp para avisar clientes sobre promoções relâmpago</li>
+              <li>🏷️ Considere reduzir o preço temporariamente para acelerar as vendas</li>
+              <li>📸 Publique fotos atraentes nas redes sociais para aumentar demanda</li>
+              {critical > 0 && <li>⚠️ Para itens há +30 dias: considere descontinuar ou usar como ingrediente em novos produtos</li>}
+            </ul>
+          </div>
+        </>
+      )}
     </div>
   )
 }

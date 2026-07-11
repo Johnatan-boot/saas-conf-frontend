@@ -209,6 +209,24 @@ export function SettingsPage() {
     finally { setSaving(false) }
   }
 
+  const [pwdForm, setPwdForm] = useState({ currentPassword: '', newPassword: '', confirm: '' })
+  const [pwdSaving, setPwdSaving] = useState(false)
+
+  async function handlePasswordChange(e: React.FormEvent) {
+    e.preventDefault()
+    const { toast } = await import('react-hot-toast')
+    if (pwdForm.newPassword.length < 6) { toast.error('Senha mínima: 6 caracteres'); return }
+    if (pwdForm.newPassword !== pwdForm.confirm) { toast.error('As senhas não coincidem'); return }
+    setPwdSaving(true)
+    try {
+      await api.put('/auth/change-password', { currentPassword: pwdForm.currentPassword, newPassword: pwdForm.newPassword })
+      toast.success('Senha alterada com sucesso! ✅')
+      setPwdForm({ currentPassword: '', newPassword: '', confirm: '' })
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Senha atual incorreta')
+    } finally { setPwdSaving(false) }
+  }
+
   const planInfo = tenant?.plan ? (PLAN_INFO[tenant.plan] || PLAN_INFO.economico) : null
   const currentPlan = PLANS_CATALOG.find(p => p.id === tenant?.plan)
 
@@ -316,6 +334,42 @@ export function SettingsPage() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Card: Alterar Senha */}
+      <div className="card">
+        <h3 className="font-display font-semibold text-mocha-900 mb-1 flex items-center gap-2">
+          🔒 Alterar Senha
+        </h3>
+        <p className="text-xs text-mocha-400 mb-4">Redefina a senha da sua conta de acesso ao painel.</p>
+        <form onSubmit={handlePasswordChange} className="space-y-3 max-w-md">
+          <div>
+            <label className="label">Senha Atual</label>
+            <input type="password" placeholder="••••••" value={pwdForm.currentPassword}
+              onChange={e => setPwdForm(f => ({ ...f, currentPassword: e.target.value }))}
+              className="input" required />
+          </div>
+          <div>
+            <label className="label">Nova Senha</label>
+            <input type="password" placeholder="Mínimo 6 caracteres" value={pwdForm.newPassword}
+              onChange={e => setPwdForm(f => ({ ...f, newPassword: e.target.value }))}
+              className="input" required minLength={6} />
+          </div>
+          <div>
+            <label className="label">Confirmar Nova Senha</label>
+            <input type="password" placeholder="Repita a nova senha" value={pwdForm.confirm}
+              onChange={e => setPwdForm(f => ({ ...f, confirm: e.target.value }))}
+              className="input" required />
+          </div>
+          {pwdForm.newPassword && pwdForm.confirm && pwdForm.newPassword !== pwdForm.confirm && (
+            <p className="text-xs text-red-500">As senhas não coincidem</p>
+          )}
+          <button type="submit" disabled={pwdSaving} className="btn-primary px-5 py-2.5 flex items-center gap-2">
+            {pwdSaving
+              ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Salvando...</>
+              : '🔒 Alterar Senha'}
+          </button>
+        </form>
       </div>
     </div>
   )

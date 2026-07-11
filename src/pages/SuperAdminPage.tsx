@@ -3,7 +3,7 @@ import {
   Crown, Users, TrendingUp, Shield, Search, MoreVertical,
   CheckCircle, XCircle, Clock, Star, Zap, Package, Plus,
   Building, Mail, Calendar, RefreshCw, Edit2, Ban,
-  DollarSign, BarChart3, AlertTriangle, Loader2
+  DollarSign, BarChart3, AlertTriangle, Loader2, Key, Activity
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '../utils'
 import toast from 'react-hot-toast'
@@ -130,7 +130,7 @@ function StatusBadge({ status }: { status: string }) {
 
 // ── Componente principal ──────────────────────────────────────────────────
 export default function SuperAdminPage() {
-  const [tab, setTab] = useState<'dashboard' | 'tenants' | 'subscriptions' | 'plans'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'tenants' | 'subscriptions' | 'plans' | 'passwords' | 'logs'>('dashboard')
   const [revenue, setRevenue] = useState<any>(null)
   const [tenants, setTenants] = useState<any[]>([])
   const [subs, setSubs] = useState<any[]>([])
@@ -197,6 +197,8 @@ export default function SuperAdminPage() {
           { id: 'dashboard', label: 'Painel', icon: BarChart3 },
           { id: 'tenants', label: 'Confeitarias', icon: Building },
           { id: 'subscriptions', label: 'Assinaturas', icon: DollarSign },
+          { id: 'passwords', label: 'Senhas', icon: Key },
+          { id: 'logs', label: 'Acessos', icon: Activity },
           { id: 'plans', label: 'Planos', icon: Star },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)}
@@ -405,6 +407,16 @@ export default function SuperAdminPage() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* ── SENHAS ── */}
+      {tab === 'passwords' && (
+        <PasswordResetPanel tenants={tenants} onUpdate={load} />
+      )}
+
+      {/* ── HISTÓRICO DE ACESSOS ── */}
+      {tab === 'logs' && (
+        <AccessLogsPanel />
       )}
 
       {/* ── PLANOS ── */}
@@ -624,6 +636,192 @@ function SubForm({ tenants, onSave, onClose }: { tenants: any[]; onSave: (data: 
           </button>
         </div>
       </form>
+    </div>
+  )
+}
+
+// ── Painel de reset de senha ──────────────────────────────────────────────
+function PasswordResetPanel({ tenants, onUpdate }: { tenants: any[]; onUpdate: () => void }) {
+  const [selectedId, setSelectedId] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const filtered = tenants.filter(t =>
+    !search || t.name.toLowerCase().includes(search.toLowerCase()) || t.email?.toLowerCase().includes(search.toLowerCase())
+  )
+
+  async function handleReset(e: React.FormEvent) {
+    e.preventDefault()
+    if (!selectedId) { toast.error('Selecione uma confeitaria'); return }
+    if (newPassword.length < 6) { toast.error('Senha mínima: 6 caracteres'); return }
+    if (newPassword !== confirm) { toast.error('As senhas não coincidem'); return }
+    setSaving(true)
+    try {
+      await api.put(`/superadmin/tenants/${selectedId}/reset-password`, { newPassword })
+      toast.success('Senha resetada com sucesso!')
+      setNewPassword(''); setConfirm(''); setSelectedId('')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Erro ao resetar senha')
+    } finally { setSaving(false) }
+  }
+
+  const sel = tenants.find(t => String(t.id) === selectedId)
+
+  return (
+    <div className="space-y-6">
+      <div className="card border-2 border-chocolate-200">
+        <h3 className="font-display font-semibold text-mocha-900 mb-1 flex items-center gap-2">
+          <Key size={16} className="text-chocolate-600" /> Resetar Senha do Admin
+        </h3>
+        <p className="text-xs text-mocha-400 mb-4">Redefine a senha de todos os usuários admin/gerente da confeitaria selecionada.</p>
+
+        <form onSubmit={handleReset} className="space-y-4">
+          <div>
+            <label className="label">Buscar Confeitaria</label>
+            <input type="text" placeholder="Nome ou email..." value={search}
+              onChange={e => setSearch(e.target.value)} className="input mb-2" />
+            <select value={selectedId} onChange={e => setSelectedId(e.target.value)} className="input" required>
+              <option value="">Selecione a confeitaria...</option>
+              {filtered.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.name} — {t.email} ({t.plan})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {sel && (
+            <div className="flex items-center gap-3 p-3 bg-cream-50 rounded-xl">
+              <div className="text-2xl">🎂</div>
+              <div>
+                <p className="font-semibold text-mocha-900 text-sm">{sel.name}</p>
+                <p className="text-xs text-mocha-400">{sel.email} · <PlanBadge plan={sel.plan} /></p>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Nova Senha</label>
+              <input type="password" placeholder="Mínimo 6 caracteres" value={newPassword}
+                onChange={e => setNewPassword(e.target.value)} className="input" required minLength={6} />
+            </div>
+            <div>
+              <label className="label">Confirmar Senha</label>
+              <input type="password" placeholder="Repita a senha" value={confirm}
+                onChange={e => setConfirm(e.target.value)} className="input" required />
+            </div>
+          </div>
+
+          {newPassword && confirm && newPassword !== confirm && (
+            <p className="text-xs text-red-500">As senhas não coincidem</p>
+          )}
+
+          <button type="submit" disabled={saving || !selectedId || newPassword.length < 6 || newPassword !== confirm}
+            className="btn-primary px-6 py-2.5 flex items-center gap-2 disabled:opacity-50">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Key size={14} />}
+            Resetar Senha
+          </button>
+        </form>
+      </div>
+
+      <div className="card">
+        <h3 className="font-display font-semibold text-mocha-900 mb-3">Todas as confeitarias ({tenants.length})</h3>
+        <div className="space-y-2">
+          {tenants.map(t => (
+            <div key={t.id} className="flex items-center justify-between py-2 border-b border-cream-50 last:border-0">
+              <div>
+                <p className="text-sm font-medium text-mocha-800">{t.name}</p>
+                <p className="text-xs text-mocha-400">{t.email}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <PlanBadge plan={t.plan} />
+                <button onClick={() => { setSelectedId(String(t.id)); setSearch('') }}
+                  className="text-xs px-3 py-1 bg-cream-100 hover:bg-cream-200 rounded-lg transition text-mocha-600">
+                  Selecionar
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Painel de histórico de acessos ────────────────────────────────────────
+function AccessLogsPanel() {
+  const [logs, setLogs] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.get('/superadmin/access-logs?limit=100')
+      .then(r => setLogs(r.data.data || []))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  const ACTION_LABELS: Record<string, { label: string; color: string }> = {
+    login:           { label: 'Login',           color: 'text-green-600 bg-green-50' },
+    logout:          { label: 'Logout',           color: 'text-slate-600 bg-slate-50' },
+    login_failed:    { label: 'Falha de Login',   color: 'text-red-600 bg-red-50' },
+    password_reset:  { label: 'Reset de Senha',   color: 'text-amber-600 bg-amber-50' },
+    plan_change:     { label: 'Mudança de Plano', color: 'text-blue-600 bg-blue-50' },
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-mocha-400">{logs.length} registros recentes</p>
+        <button onClick={() => { setLoading(true); api.get('/superadmin/access-logs?limit=100').then(r => setLogs(r.data.data || [])).finally(() => setLoading(false)) }}
+          className="flex items-center gap-1 text-xs text-mocha-500 hover:text-mocha-800 transition">
+          <RefreshCw size={12} /> Atualizar
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-mocha-400" /></div>
+      ) : logs.length === 0 ? (
+        <div className="card text-center py-12">
+          <Activity size={32} className="text-mocha-200 mx-auto mb-3" />
+          <p className="text-mocha-400">Nenhum acesso registrado ainda</p>
+          <p className="text-xs text-mocha-300 mt-1">Os acessos serão registrados a partir de agora</p>
+        </div>
+      ) : (
+        <div className="card overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-cream-100 text-xs text-mocha-400">
+                <th className="text-left pb-2">Data/Hora</th>
+                <th className="text-left pb-2">Ação</th>
+                <th className="text-left pb-2">Confeitaria</th>
+                <th className="text-left pb-2">Email</th>
+                <th className="text-left pb-2">Detalhes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log: any) => {
+                const act = ACTION_LABELS[log.action] || { label: log.action, color: 'text-mocha-600 bg-mocha-50' }
+                return (
+                  <tr key={log.id} className="border-b border-cream-50 hover:bg-cream-50">
+                    <td className="py-2 text-xs text-mocha-400 whitespace-nowrap">
+                      {new Date(log.created_at).toLocaleString('pt-BR')}
+                    </td>
+                    <td className="py-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${act.color}`}>{act.label}</span>
+                    </td>
+                    <td className="py-2 text-xs text-mocha-700">{log.tenant_name || '—'}</td>
+                    <td className="py-2 text-xs text-mocha-500">{log.email || log.user_name || '—'}</td>
+                    <td className="py-2 text-xs text-mocha-400 max-w-[200px] truncate">{log.details || '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

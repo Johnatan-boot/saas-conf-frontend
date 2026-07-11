@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { ShoppingBag, Users, Package, TrendingUp, Clock, AlertTriangle, Star, Calendar } from 'lucide-react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
+import { ShoppingBag, Users, Package, TrendingUp, Clock, AlertTriangle, Star, Calendar, RefreshCw } from 'lucide-react'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from 'recharts'
 import api from '../services/api'
 import { KPIs, RevenueDay, TopProduct, Order, OrderStatus } from '../types'
@@ -38,25 +38,42 @@ export default function DashboardPage() {
   const [upcoming, setUpcoming] = useState<Order[]>([])
   const [topClients, setTopClients] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  useEffect(() => {
-    Promise.all([
-      api.get('/dashboard/kpis'),
-      api.get('/dashboard/revenue?days=14'),
-      api.get('/dashboard/top-products'),
-      api.get('/dashboard/orders-by-status'),
-      api.get('/dashboard/upcoming-deliveries'),
-      api.get('/dashboard/top-clients'),
-    ]).then(([k, r, tp, obs, ud, tc]) => {
+  const fetchAll = useCallback(async (isManual = false) => {
+    if (isManual) setRefreshing(true)
+    try {
+      const [k, r, tp, obs, ud, tc] = await Promise.all([
+        api.get('/dashboard/kpis'),
+        api.get('/dashboard/revenue?days=14'),
+        api.get('/dashboard/top-products'),
+        api.get('/dashboard/orders-by-status'),
+        api.get('/dashboard/upcoming-deliveries'),
+        api.get('/dashboard/top-clients'),
+      ])
       setKpis(k.data.data)
       setRevenue(r.data.data)
       setTopProducts(tp.data.data)
       setOrdersByStatus(obs.data.data)
       setUpcoming(ud.data.data)
       setTopClients(tc.data.data)
-    }).catch(console.error)
-      .finally(() => setLoading(false))
+      setLastUpdated(new Date())
+    } catch (err) {
+      console.error('Erro ao atualizar dashboard:', err)
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
   }, [])
+
+  useEffect(() => {
+    fetchAll()
+    // Auto-refresh a cada 30 segundos — dados sempre em tempo real
+    intervalRef.current = setInterval(() => fetchAll(), 30_000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [fetchAll])
 
   if (loading) return <LoadingPage />
 
@@ -80,8 +97,19 @@ export default function DashboardPage() {
           <h2 className="font-display text-2xl font-bold text-mocha-900">Dashboard</h2>
           <p className="text-mocha-500 text-sm mt-0.5">Visão geral do seu negócio hoje</p>
         </div>
-        <div className="text-right hidden sm:block">
-          <p className="text-xs text-mocha-400">{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+        <div className="text-right hidden sm:flex items-center gap-3">
+          <div className="text-right">
+            <p className="text-xs text-mocha-400">{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+            {lastUpdated && <p className="text-[10px] text-mocha-300">Atualizado às {lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>}
+          </div>
+          <button
+            onClick={() => fetchAll(true)}
+            disabled={refreshing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cream-100 hover:bg-cream-200 text-mocha-600 text-xs font-medium transition disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Atualizando...' : 'Atualizar'}
+          </button>
         </div>
       </div>
 

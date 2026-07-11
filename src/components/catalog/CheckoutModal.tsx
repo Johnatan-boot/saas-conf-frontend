@@ -32,28 +32,47 @@ export default function CheckoutModal({ cart, store, onClose, customerToken, cus
   async function handleFinalize() {
     setSubmitting(true)
     try {
-      // Gateways externos (Stripe / MP / Pagar.me): cria o pedido E a
-      // sessão de pagamento numa chamada só, depois redireciona.
-      // Antes, pra esses 3 métodos, o pedido NUNCA era criado.
+      // Garante que o document tem um valor válido para Pagar.me/MP
+      // (igual ao Projeto B: fallback para CPF genérico se não informado)
+      const customerWithDoc = {
+        ...customer,
+        document: customer.document?.replace(/\D/g, '') || '00000000000',
+        phone: customer.phone?.replace(/\D/g, '') || '',
+        email: customer.email || '',
+      }
+
       if (['stripe', 'mercadopago', 'pagarme'].includes(paymentMethod)) {
-        const res = await catalogService.checkoutWithGateway(paymentMethod as 'stripe' | 'mercadopago' | 'pagarme', {
-          storeSlug: store.slug, customer,
-          items: cart.items.map(i => ({ productId: i.product.id, quantity: i.quantity, price: i.product.price })),
-          total: cart.total, paymentMethod: paymentMethod as any,
-        }, customerToken)
+        const res = await catalogService.checkoutWithGateway(
+          paymentMethod as 'stripe' | 'mercadopago' | 'pagarme',
+          {
+            storeSlug: store.slug,
+            customer: customerWithDoc,
+            items: cart.items.map(i => ({ productId: i.product.id, quantity: i.quantity, price: i.product.price })),
+            total: cart.total,
+            paymentMethod: paymentMethod as any,
+          },
+          customerToken
+        )
+        // Pedido já foi criado no backend — agora redireciona para o gateway
+        cart.clearCart()
         window.location.href = res.url
         return
       }
 
       // Pagamento manual (PIX, dinheiro, cartão na entrega)
       const res = await catalogService.createOrder({
-        storeSlug: store.slug, customer,
+        storeSlug: store.slug,
+        customer: customerWithDoc,
         items: cart.items.map(i => ({ productId: i.product.id, quantity: i.quantity, price: i.product.price })),
-        total: cart.total, paymentMethod: paymentMethod as any,
+        total: cart.total,
+        paymentMethod: paymentMethod as any,
       }, customerToken)
-      setOrderId(res.orderId); cart.clearCart(); setStep('success')
+      setOrderId(res.orderId)
+      cart.clearCart()
+      setStep('success')
     } catch (err: any) {
-      toast.error(err?.response?.data?.error || 'Erro ao finalizar pedido')
+      const msg = err?.response?.data?.error || 'Erro ao finalizar pedido. Tente novamente.'
+      toast.error(msg)
     } finally {
       setSubmitting(false)
     }
