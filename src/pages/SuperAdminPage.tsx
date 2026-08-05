@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import {
   Crown, Users, TrendingUp, Shield, Search, MoreVertical,
-  CheckCircle, XCircle, Clock, Star, Zap, Package, Plus,
+  CheckCircle, XCircle, Clock, Star, Zap, Package, Sparkles,
   Building, Mail, Calendar, RefreshCw, Edit2, Ban,
   DollarSign, BarChart3, AlertTriangle, Loader2, Key, Activity
 } from 'lucide-react'
@@ -138,7 +138,6 @@ export default function SuperAdminPage() {
   const [search, setSearch] = useState('')
   const [filterPlan, setFilterPlan] = useState('todos')
   const [filterStatus, setFilterStatus] = useState('todos')
-  const [showSubForm, setShowSubForm] = useState(false)
   const [editingTenant, setEditingTenant] = useState<any>(null)
 
   const load = useCallback(async () => {
@@ -364,20 +363,10 @@ export default function SuperAdminPage() {
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <p className="text-sm text-mocha-400">{subs.length} assinatura{subs.length !== 1 ? 's' : ''}</p>
-            <button onClick={() => setShowSubForm(true)}
-              className="flex items-center gap-2 btn-primary text-sm px-4 py-2">
-              <Plus size={14} /> Nova Assinatura
-            </button>
+            <p className="text-xs text-mocha-400 italic flex items-center gap-1.5">
+              <Sparkles size={12} /> Assinaturas são criadas automaticamente quando a confeitaria escolhe o plano e conclui o pagamento no cadastro.
+            </p>
           </div>
-
-          {showSubForm && <SubForm tenants={tenants} onSave={async (data) => {
-            try {
-              await saApi.createSub(data)
-              toast.success('Assinatura criada!')
-              setShowSubForm(false)
-              load()
-            } catch { toast.error('Erro ao criar assinatura') }
-          }} onClose={() => setShowSubForm(false)} />}
 
           <div className="space-y-3">
             {subs.map(s => (
@@ -518,15 +507,6 @@ function TenantActions({ tenant, onUpdate }: { tenant: any; onUpdate: () => void
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  async function changePlan(plan: string) {
-    setLoading(true)
-    try {
-      await api.put(`/superadmin/tenants/${tenant.id}/plan`, { plan, plan_status: 'active' })
-      toast.success(`Plano atualizado para ${plan}`)
-      onUpdate()
-    } catch { toast.error('Erro ao atualizar plano') } finally { setLoading(false); setOpen(false) }
-  }
-
   async function changeStatus(status: string) {
     setLoading(true)
     try {
@@ -545,17 +525,7 @@ function TenantActions({ tenant, onUpdate }: { tenant: any; onUpdate: () => void
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-8 w-48 bg-white rounded-2xl shadow-warm-lg overflow-hidden z-50 border border-cream-100">
-            <div className="px-3 py-2 text-xs font-semibold text-mocha-400 border-b border-cream-100">Mudar Plano</div>
-            {['economico', 'standard', 'premium'].filter(p => p !== tenant.plan).map(p => {
-              const plan = PLANS.find(x => x.id === p)!
-              return (
-                <button key={p} onClick={() => changePlan(p)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-mocha-700 hover:bg-cream-50 transition">
-                  <span>{plan.icon}</span> {plan.name}
-                </button>
-              )
-            })}
-            <div className="px-3 py-2 text-xs font-semibold text-mocha-400 border-t border-cream-100">Status</div>
+            <div className="px-3 py-2 text-xs font-semibold text-mocha-400 border-b border-cream-100">Status</div>
             {tenant.plan_status !== 'active' && (
               <button onClick={() => changeStatus('active')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-600 hover:bg-green-50 transition">
                 <CheckCircle size={14} /> Ativar
@@ -566,6 +536,9 @@ function TenantActions({ tenant, onUpdate }: { tenant: any; onUpdate: () => void
                 <Ban size={14} /> Suspender
               </button>
             )}
+            <div className="px-3 py-2 text-[11px] text-mocha-400 border-t border-cream-100 italic">
+              O plano é escolhido e pago pela própria confeitaria no cadastro/checkout.
+            </div>
           </div>
         </>
       )}
@@ -573,74 +546,7 @@ function TenantActions({ tenant, onUpdate }: { tenant: any; onUpdate: () => void
   )
 }
 
-function SubForm({ tenants, onSave, onClose }: { tenants: any[]; onSave: (data: any) => Promise<void>; onClose: () => void }) {
-  const [form, setForm] = useState({ tenantId: '', plan: 'standard', billingCycle: 'mensal', notes: '', startedAt: new Date().toISOString().split('T')[0] })
-  const [saving, setSaving] = useState(false)
-
-  const selectedPlan = PLANS.find(p => p.id === form.plan)
-  const selectedCycle = BILLING_CYCLES.find(c => c.id === form.billingCycle)!
-  const pricePerMonth = selectedPlan ? selectedPlan.price * (1 - selectedCycle.discount / 100) : 0
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!form.tenantId) { toast.error('Selecione uma confeitaria'); return }
-    setSaving(true)
-    await onSave({ ...form, tenantId: Number(form.tenantId) })
-    setSaving(false)
-  }
-
-  return (
-    <div className="card border-2 border-chocolate-200">
-      <h4 className="font-display font-semibold text-mocha-900 mb-4 flex items-center gap-2">
-        <Plus size={16} className="text-chocolate-600" /> Nova Assinatura
-      </h4>
-      <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
-        <div className="col-span-2">
-          <label className="label">Confeitaria</label>
-          <select value={form.tenantId} onChange={e => setForm(f => ({ ...f, tenantId: e.target.value }))} className="input" required>
-            <option value="">Selecione...</option>
-            {tenants.map(t => <option key={t.id} value={t.id}>{t.name} ({t.email})</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="label">Plano</label>
-          <select value={form.plan} onChange={e => setForm(f => ({ ...f, plan: e.target.value }))} className="input">
-            {PLANS.map(p => <option key={p.id} value={p.id}>{p.icon} {p.name} — {formatCurrency(p.price)}/mês</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="label">Ciclo de Cobrança</label>
-          <select value={form.billingCycle} onChange={e => setForm(f => ({ ...f, billingCycle: e.target.value }))} className="input">
-            {BILLING_CYCLES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="label">Data de Início</label>
-          <input type="date" value={form.startedAt} onChange={e => setForm(f => ({ ...f, startedAt: e.target.value }))} className="input" />
-        </div>
-        <div className="flex items-end">
-          <div className="rounded-xl bg-cream-50 px-4 py-2.5 w-full text-center">
-            <p className="text-xs text-mocha-400">Valor mensal</p>
-            <p className="font-display font-bold text-chocolate-700 text-lg">{formatCurrency(pricePerMonth)}</p>
-            {selectedCycle.discount > 0 && <p className="text-xs text-green-600">-{selectedCycle.discount}% de desconto</p>}
-          </div>
-        </div>
-        <div className="col-span-2">
-          <label className="label">Observações (opcional)</label>
-          <input type="text" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Ex: assinatura da Black Friday" className="input" />
-        </div>
-        <div className="col-span-2 flex gap-3 justify-end">
-          <button type="button" onClick={onClose} className="btn-secondary px-4 py-2 text-sm">Cancelar</button>
-          <button type="submit" disabled={saving} className="btn-primary px-4 py-2 text-sm flex items-center gap-2">
-            {saving && <Loader2 size={14} className="animate-spin" />} Criar Assinatura
-          </button>
-        </div>
-      </form>
-    </div>
-  )
-}
-
-// ── Painel de reset de senha ──────────────────────────────────────────────
+// ── Sub-componentes ───────────────────────────────────────────────────────
 function PasswordResetPanel({ tenants, onUpdate }: { tenants: any[]; onUpdate: () => void }) {
   const [selectedId, setSelectedId] = useState('')
   const [newPassword, setNewPassword] = useState('')

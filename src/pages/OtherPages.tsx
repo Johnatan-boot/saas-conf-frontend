@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react'
-import { CheckCircle, Sparkles } from 'lucide-react'
+import { CheckCircle, Sparkles, FileText, ShieldCheck, CreditCard, ArrowLeft, Loader2 } from 'lucide-react'
 import api from '../services/api'
 import { formatCurrency, formatDate, formatDateTime } from '../utils'
 import { LoadingPage, EmptyState, Badge } from '../components/ui'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { CONTRACT_TITLE, CONTRACT_VERSION, buildContractClauses } from '../data/saasContract'
+import { paymentGatewayService } from '../services/paymentGatewayService'
 
 // ── Planos do SaaS ─────────────────────────────────────────────────────────
 const PLANS_CATALOG = [
@@ -377,42 +379,140 @@ export function SettingsPage() {
 
 // ── Onboard ───────────────────────────────────────────────────────────────
 export function OnboardPage() {
+  type Step = 'form' | 'contract' | 'payment' | 'done'
+  const [step, setStep] = useState<Step>('form')
   const [form, setForm] = useState({ tenantName: '', adminName: '', adminEmail: '', adminPassword: '' })
   const [selectedPlan, setSelectedPlan] = useState<PlanId>('economico')
   const [loading, setLoading] = useState(false)
-  const [done, setDone] = useState(false)
   const [result, setResult] = useState<any>(null)
 
-  async function handleSubmit(e: React.FormEvent) {
+  // Contrato
+  const [contractAccepted, setContractAccepted] = useState(false)
+
+  // Pagamento da assinatura
+  const [gateway, setGateway] = useState<'stripe' | 'mercadopago' | 'pagarme'>('mercadopago')
+  const [payerDoc, setPayerDoc] = useState('')
+  const [payerPhone, setPayerPhone] = useState('')
+  const [payLoading, setPayLoading] = useState(false)
+
+  const chosenPlan = PLANS_CATALOG.find(p => p.id === selectedPlan)!
+  const contractClauses = buildContractClauses(chosenPlan.name, `${formatCurrency(chosenPlan.price)}`)
+
+  // Etapa 1 → 2: valida os dados e avança para o contrato
+  function handleGoToContract(e: React.FormEvent) {
     e.preventDefault()
+    setStep('contract')
+  }
+
+  // Etapa 2 → cria a confeitaria já com o aceite do contrato registrado
+  async function handleAcceptContract() {
+    if (!contractAccepted) {
+      const { toast } = await import('react-hot-toast')
+      toast.error('É necessário ler e aceitar o contrato para continuar.')
+      return
+    }
     setLoading(true)
     try {
       const { default: api } = await import('../services/api')
-      const res = await api.post('/tenants/onboard', { ...form, plan: selectedPlan })
-      setResult(res.data.data)
-      setDone(true)
+      const res = await api.post('/tenants/onboard', {
+        ...form,
+        plan: selectedPlan,
+        contractAccepted: true,
+        contractVersion: CONTRACT_VERSION,
+      })
+      const data = res.data.data
+      setResult(data)
+      // Guarda a sessão da confeitaria recém-criada para autenticar o
+      // checkout da assinatura (mesmo padrão usado no login).
+      localStorage.setItem('accessToken', data.accessToken)
+      localStorage.setItem('tenantSlug', data.tenant?.slug || '')
+      setStep('payment')
     } catch (err: any) {
       const { toast } = await import('react-hot-toast')
       toast.error(err?.response?.data?.error || 'Erro ao cadastrar. Verifique os dados e tente novamente.')
     } finally { setLoading(false) }
   }
 
-  const chosenPlan = PLANS_CATALOG.find(p => p.id === selectedPlan)!
+  // Etapa 3: redireciona para o gateway escolhido para pagar a assinatura
+  async function handlePay() {
+    setPayLoading(true)
+    try {
+      const { paymentGatewayService } = await import('../services/paymentGatewayService')
+      await paymentGatewayService.checkoutSubscription({
+        gateway,
+        billingCycle: 'mensal',
+        customerName: form.adminName,
+        customerEmail: form.adminEmail,
+        customerDocument: payerDoc,
+        customerPhone: payerPhone,
+      })
+      // Em caso de sucesso o navegador é redirecionado para o gateway;
+      // se cair aqui é porque falhou (o serviço já mostra o toast de erro).
+    } finally {
+      setPayLoading(false)
+    }
+  }
 
-  if (done && result) return (
+  if (step === 'payment' && result) return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-mocha-900">
-      <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-warm-lg animate-slide-up">
-        <div className="text-5xl mb-4">🎉</div>
-        <h2 className="font-display text-2xl font-bold text-mocha-900 mb-2">Confeitaria criada!</h2>
-        <p className="text-mocha-500 text-sm mb-4">Sua conta está pronta. Guarde seu slug para fazer login.</p>
-        <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold mb-4 ${chosenPlan.badge}`}>
-          {chosenPlan.icon} Plano {chosenPlan.name} — {formatCurrency(chosenPlan.price)}/mês
+      <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-warm-lg animate-slide-up">
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-cream-100 rounded-3xl mb-3 text-3xl">💳</div>
+          <h2 className="font-display text-2xl font-bold text-mocha-900 mb-1">Falta só o pagamento!</h2>
+          <p className="text-mocha-500 text-sm">Sua confeitaria <strong>{result.tenant?.slug}</strong> foi criada. Conclua o pagamento para ativar o plano.</p>
         </div>
-        <div className="bg-cream-50 rounded-2xl p-4 text-left text-sm space-y-2 mb-6">
-          <p><span className="text-mocha-400">Slug:</span> <strong className="text-chocolate-700">{result.tenant?.slug}</strong></p>
-          <p><span className="text-mocha-400">Email:</span> <strong>{form.adminEmail}</strong></p>
+
+        <div className={`rounded-2xl border-2 ${chosenPlan.border} p-4 mb-5`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${chosenPlan.color} flex items-center justify-center text-lg`}>{chosenPlan.icon}</div>
+              <div>
+                <p className="font-semibold text-mocha-900 text-sm">Plano {chosenPlan.name}</p>
+                <p className="text-xs text-mocha-400">Cobrança mensal</p>
+              </div>
+            </div>
+            <p className="font-display font-bold text-mocha-900">{formatCurrency(chosenPlan.price)}<span className="text-xs font-normal text-mocha-400">/mês</span></p>
+          </div>
         </div>
-        <a href="/login" className="btn-primary inline-flex">Ir para o login →</a>
+
+        <p className="text-sm font-semibold text-mocha-700 mb-2">Escolha a forma de pagamento:</p>
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {[
+            { id: 'mercadopago', label: 'Mercado Pago' },
+            { id: 'pagarme', label: 'Pagar.me' },
+            { id: 'stripe', label: 'Stripe' },
+          ].map(g => (
+            <button key={g.id} type="button" onClick={() => setGateway(g.id as any)}
+              className={`rounded-xl border-2 py-3 px-2 text-xs font-semibold transition-all ${
+                gateway === g.id ? 'border-chocolate-500 bg-chocolate-50 text-chocolate-700' : 'border-cream-200 text-mocha-500 hover:border-cream-300'
+              }`}>
+              {g.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-5">
+          <div>
+            <label className="label">CPF/CNPJ</label>
+            <input className="input" placeholder="Só números" value={payerDoc} onChange={e => setPayerDoc(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Telefone</label>
+            <input className="input" placeholder="(11) 9 9999-9999" value={payerPhone} onChange={e => setPayerPhone(e.target.value)} />
+          </div>
+        </div>
+
+        <button onClick={handlePay} disabled={payLoading}
+          className="w-full btn-primary py-3 flex items-center justify-center gap-2 disabled:opacity-50">
+          {payLoading
+            ? <><Loader2 size={16} className="animate-spin" /> Redirecionando...</>
+            : <><CreditCard size={16} /> Pagar {formatCurrency(chosenPlan.price)} e ativar</>}
+        </button>
+        <p className="text-center text-mocha-400 text-xs mt-4">
+          Você será redirecionado(a) com segurança para o gateway escolhido.
+          Depois de pagar, é só entrar com seu email e senha em{' '}
+          <a href="/login" className="text-chocolate-600 underline">/login</a>.
+        </p>
       </div>
     </div>
   )
@@ -430,89 +530,156 @@ export function OnboardPage() {
               🎂
             </div>
             <h1 className="font-display text-3xl font-bold text-cream-50">Cadastre sua confeitaria</h1>
-            <p className="text-chocolate-300 text-sm mt-1">Comece em 30 segundos</p>
-          </div>
-
-          {/* Formulário de dados */}
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 mb-6">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {[
-                { label: 'Nome da confeitaria', key: 'tenantName', placeholder: 'Ex: Confeitaria da Ana', type: 'text' },
-                { label: 'Seu nome', key: 'adminName', placeholder: 'Nome completo', type: 'text' },
-                { label: 'Email', key: 'adminEmail', placeholder: 'seu@email.com', type: 'email' },
-                { label: 'Senha (mínimo 6 caracteres)', key: 'adminPassword', placeholder: '••••••••', type: 'password' },
-              ].map(f => (
-                <div key={f.key}>
-                  <label className="block text-sm font-medium text-chocolate-200 mb-1.5">{f.label}</label>
-                  <input type={f.type} placeholder={f.placeholder} value={(form as any)[f.key]}
-                    onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))} required
-                    minLength={f.key === 'adminPassword' ? 6 : undefined}
-                    className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-cream-50 placeholder-chocolate-400 focus:outline-none focus:ring-2 focus:ring-chocolate-400 transition-all" />
-                </div>
-              ))}
-
-              {/* ── Seleção de Plano ── */}
-              <div className="pt-2">
-                <p className="text-sm font-semibold text-chocolate-200 mb-3">Escolha seu plano:</p>
-                <div className="space-y-2">
-                  {PLANS_CATALOG.map(plan => (
-                    <button
-                      key={plan.id}
-                      type="button"
-                      onClick={() => setSelectedPlan(plan.id as PlanId)}
-                      className={`w-full rounded-2xl border-2 p-3.5 text-left transition-all relative ${
-                        selectedPlan === plan.id
-                          ? 'border-chocolate-400 bg-chocolate-600/30'
-                          : 'border-white/15 bg-white/5 hover:border-white/30'
-                      }`}
-                    >
-                      {(plan as any).popular && selectedPlan !== plan.id && (
-                        <span className="absolute -top-2 right-3 bg-amber-400 text-amber-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          MAIS POPULAR
-                        </span>
-                      )}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center text-lg flex-shrink-0`}>
-                            {plan.icon}
-                          </div>
-                          <div>
-                            <p className="text-sm font-semibold text-cream-50">{plan.name}</p>
-                            <p className="text-xs text-chocolate-300">{plan.description}</p>
-                          </div>
-                        </div>
-                        <div className="text-right flex-shrink-0 ml-2">
-                          <p className="text-sm font-bold text-cream-50">{formatCurrency(plan.price)}<span className="text-[10px] font-normal text-chocolate-300">/mês</span></p>
-                          {selectedPlan === plan.id && (
-                            <CheckCircle size={16} className="text-chocolate-300 ml-auto mt-0.5" />
-                          )}
-                        </div>
-                      </div>
-                      {selectedPlan === plan.id && (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {plan.features.slice(0, 3).map((f, i) => (
-                            <span key={i} className="text-[10px] bg-white/10 text-chocolate-200 px-2 py-0.5 rounded-full">
-                              ✓ {f}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <button type="submit" disabled={loading}
-                className="w-full bg-chocolate-600 hover:bg-chocolate-500 text-cream-50 font-semibold py-3 rounded-xl transition-all duration-200 hover:shadow-warm active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 mt-2">
-                {loading
-                  ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Criando...</>
-                  : `Criar com plano ${chosenPlan.name} →`}
-              </button>
-            </form>
-            <p className="text-center text-chocolate-400 text-xs mt-4">
-              Já tem conta? <a href="/login" className="text-chocolate-200 hover:text-cream-100 underline">Entrar</a>
+            <p className="text-chocolate-300 text-sm mt-1">
+              {step === 'form' && 'Comece em 30 segundos'}
+              {step === 'contract' && 'Só falta ler e aceitar o contrato'}
             </p>
           </div>
+
+          {/* Indicador de etapas */}
+          <div className="flex items-center gap-2 mb-6 px-1">
+            {[
+              { id: 'form', label: 'Dados e plano' },
+              { id: 'contract', label: 'Contrato' },
+              { id: 'payment', label: 'Pagamento' },
+            ].map((s, i) => (
+              <React.Fragment key={s.id}>
+                {i > 0 && <div className="flex-1 h-px bg-white/15" />}
+                <div className={`flex items-center gap-1.5 text-[11px] font-semibold ${step === s.id ? 'text-cream-50' : 'text-chocolate-400'}`}>
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step === s.id ? 'bg-chocolate-500 text-cream-50' : 'bg-white/10'}`}>{i + 1}</span>
+                  {s.label}
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+
+          {/* ── ETAPA 1: Dados + Plano ── */}
+          {step === 'form' && (
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 mb-6">
+              <form onSubmit={handleGoToContract} className="space-y-4">
+                {[
+                  { label: 'Nome da confeitaria', key: 'tenantName', placeholder: 'Ex: Confeitaria da Ana', type: 'text' },
+                  { label: 'Seu nome', key: 'adminName', placeholder: 'Nome completo', type: 'text' },
+                  { label: 'Email', key: 'adminEmail', placeholder: 'seu@email.com', type: 'email' },
+                  { label: 'Senha (mínimo 6 caracteres)', key: 'adminPassword', placeholder: '••••••••', type: 'password' },
+                ].map(f => (
+                  <div key={f.key}>
+                    <label className="block text-sm font-medium text-chocolate-200 mb-1.5">{f.label}</label>
+                    <input type={f.type} placeholder={f.placeholder} value={(form as any)[f.key]}
+                      onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))} required
+                      minLength={f.key === 'adminPassword' ? 6 : undefined}
+                      className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-cream-50 placeholder-chocolate-400 focus:outline-none focus:ring-2 focus:ring-chocolate-400 transition-all" />
+                  </div>
+                ))}
+
+                {/* ── Seleção de Plano ── */}
+                <div className="pt-2">
+                  <p className="text-sm font-semibold text-chocolate-200 mb-3">Escolha seu plano:</p>
+                  <div className="space-y-2">
+                    {PLANS_CATALOG.map(plan => (
+                      <button
+                        key={plan.id}
+                        type="button"
+                        onClick={() => setSelectedPlan(plan.id as PlanId)}
+                        className={`w-full rounded-2xl border-2 p-3.5 text-left transition-all relative ${
+                          selectedPlan === plan.id
+                            ? 'border-chocolate-400 bg-chocolate-600/30'
+                            : 'border-white/15 bg-white/5 hover:border-white/30'
+                        }`}
+                      >
+                        {(plan as any).popular && selectedPlan !== plan.id && (
+                          <span className="absolute -top-2 right-3 bg-amber-400 text-amber-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            MAIS POPULAR
+                          </span>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center text-lg flex-shrink-0`}>
+                              {plan.icon}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-cream-50">{plan.name}</p>
+                              <p className="text-xs text-chocolate-300">{plan.description}</p>
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0 ml-2">
+                            <p className="text-sm font-bold text-cream-50">{formatCurrency(plan.price)}<span className="text-[10px] font-normal text-chocolate-300">/mês</span></p>
+                            {selectedPlan === plan.id && (
+                              <CheckCircle size={16} className="text-chocolate-300 ml-auto mt-0.5" />
+                            )}
+                          </div>
+                        </div>
+                        {selectedPlan === plan.id && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {plan.features.slice(0, 3).map((f, i) => (
+                              <span key={i} className="text-[10px] bg-white/10 text-chocolate-200 px-2 py-0.5 rounded-full">
+                                ✓ {f}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button type="submit"
+                  className="w-full bg-chocolate-600 hover:bg-chocolate-500 text-cream-50 font-semibold py-3 rounded-xl transition-all duration-200 hover:shadow-warm active:scale-95 flex items-center justify-center gap-2 mt-2">
+                  Continuar com plano {chosenPlan.name} →
+                </button>
+              </form>
+              <p className="text-center text-chocolate-400 text-xs mt-4">
+                Já tem conta? <a href="/login" className="text-chocolate-200 hover:text-cream-100 underline">Entrar</a>
+              </p>
+            </div>
+          )}
+
+          {/* ── ETAPA 2: Contrato ── */}
+          {step === 'contract' && (
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 mb-6">
+              <div className="flex items-center gap-2 mb-4">
+                <FileText size={18} className="text-chocolate-300" />
+                <h2 className="font-display text-lg font-semibold text-cream-50">{CONTRACT_TITLE}</h2>
+              </div>
+              <p className="text-xs text-chocolate-300 mb-3">
+                Leia com atenção antes de continuar. Versão {CONTRACT_VERSION} — plano {chosenPlan.name} ({formatCurrency(chosenPlan.price)}/mês).
+              </p>
+
+              <div className="max-h-72 overflow-y-auto rounded-2xl bg-white/5 border border-white/10 p-4 space-y-4 mb-4">
+                {contractClauses.map((clause, i) => (
+                  <div key={i}>
+                    <p className="text-sm font-semibold text-cream-50 mb-1">{clause.title}</p>
+                    {clause.body.map((p, j) => (
+                      <p key={j} className="text-xs text-chocolate-200 leading-relaxed mb-1.5">{p}</p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+
+              <label className="flex items-start gap-2.5 mb-5 cursor-pointer">
+                <input type="checkbox" checked={contractAccepted}
+                  onChange={e => setContractAccepted(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded accent-chocolate-500" />
+                <span className="text-xs text-chocolate-200">
+                  Li e concordo com os termos do <strong className="text-cream-50">Contrato de Prestação de Serviços</strong>,
+                  incluindo as cláusulas de cancelamento, desistência e eventual multa por rescisão antecipada em planos com fidelidade.
+                </span>
+              </label>
+
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setStep('form')}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-white/10 hover:bg-white/15 text-cream-50 font-medium py-3 rounded-xl transition-all">
+                  <ArrowLeft size={15} /> Voltar
+                </button>
+                <button type="button" onClick={handleAcceptContract} disabled={!contractAccepted || loading}
+                  className="flex-[2] flex items-center justify-center gap-2 bg-chocolate-600 hover:bg-chocolate-500 text-cream-50 font-semibold py-3 rounded-xl transition-all disabled:opacity-50">
+                  {loading
+                    ? <><Loader2 size={16} className="animate-spin" /> Criando conta...</>
+                    : <><ShieldCheck size={16} /> Aceitar e continuar</>}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -528,7 +695,7 @@ export function OnboardPage() {
           <blockquote className="text-white font-display text-2xl font-semibold leading-snug drop-shadow-lg">
             "Cada pedido é uma história.<br />Conte a sua com a gente."
           </blockquote>
-          <p className="text-cream-200/80 text-sm mt-3 drop-shadow">Cancele quando quiser. Sem fidelidade.</p>
+          <p className="text-cream-200/80 text-sm mt-3 drop-shadow">Cancele quando quiser. Sem fidelidade no plano mensal.</p>
         </div>
       </div>
     </div>

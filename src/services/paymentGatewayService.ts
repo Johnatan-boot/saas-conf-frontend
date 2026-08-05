@@ -32,7 +32,38 @@ async function post(path: string, body: object) {
   })
 }
 
+export interface SubscriptionCheckoutOptions {
+  gateway: 'stripe' | 'mercadopago' | 'pagarme'
+  billingCycle?: 'mensal' | '12x' | '24x' | '36x'
+  customerName?: string
+  customerEmail?: string
+  customerDocument?: string
+  customerPhone?: string
+}
+
 export const paymentGatewayService = {
+  // --- Assinatura do próprio SaaS (plano escolhido no cadastro) ---
+  // Precisa que accessToken/tenantSlug já estejam no localStorage
+  // (feito logo após o /tenants/onboard responder).
+  async checkoutSubscription(options: SubscriptionCheckoutOptions) {
+    try {
+      const res = await post('/subscriptions/checkout', options)
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        const det = data.details
+          ? ' (' + Object.entries(data.details).map(([f, e]) => `${f}: ${Array.isArray(e) ? e.join(', ') : JSON.stringify(e)}`).join(' | ') + ')'
+          : ''
+        throw new Error((data.error || 'Erro ao iniciar pagamento da assinatura') + det)
+      }
+      const url = data.data?.url
+      if (url) window.location.href = url
+      else throw new Error('URL de checkout não recebida.')
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao processar pagamento da assinatura')
+      throw err
+    }
+  },
+
   // --- Stripe (igual ao OmniPay) ---
   async checkoutWithStripe(options: GatewayCheckoutOptions) {
     try {
