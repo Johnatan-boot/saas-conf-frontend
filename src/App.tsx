@@ -20,6 +20,7 @@ import ProfitPage from './pages/ProfitPage'
 import DesignSettings from './pages/settings/DesignSettings'
 import CatalogPage from './pages/catalog/CatalogPage'
 import IntegrationsPage from './pages/integrations/IntegrationsPage'
+import SubscriptionReturnPage from './pages/SubscriptionReturnPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -40,6 +41,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
       <Route path="/onboard" element={<OnboardPage />} />
+      <Route path="/assinatura/retorno" element={<SubscriptionReturnPage />} />
       {/* ✅ PÚBLICO — sem auth */}
       <Route path="/catalogo/:slug" element={<CatalogPage />} />
       {/* Privadas */}

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react'
-import { CheckCircle, Sparkles, FileText, ShieldCheck, CreditCard, ArrowLeft, Loader2 } from 'lucide-react'
+import { CheckCircle, Sparkles, FileText, ShieldCheck, CreditCard, ArrowLeft, Loader2, Printer, ChevronDown, Copy } from 'lucide-react'
 import api from '../services/api'
 import { formatCurrency, formatDate, formatDateTime } from '../utils'
 import { LoadingPage, EmptyState, Badge } from '../components/ui'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
-import { CONTRACT_TITLE, CONTRACT_VERSION, buildContractClauses } from '../data/saasContract'
+import { CONTRACT_TITLE, CONTRACT_VERSION, MASTERCODE, CYCLE_TABLE, buildContractClauses } from '../data/saasContract'
 import { paymentGatewayService } from '../services/paymentGatewayService'
 
 // ── Planos do SaaS ─────────────────────────────────────────────────────────
@@ -388,11 +388,61 @@ export function OnboardPage() {
 
   // Contrato
   const [contractAccepted, setContractAccepted] = useState(false)
+  const [readToEnd, setReadToEnd] = useState(false)
+
+  function handleContractScroll(e: React.UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) setReadToEnd(true)
+  }
+
+  function handlePrintContract() {
+    const w = window.open('', '_blank')
+    if (!w) return
+    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    const html = contractClauses.map(c =>
+      `<h3>${esc(c.title)}</h3>` + c.body.map(p => `<p>${esc(p)}</p>`).join('')).join('')
+    const table = '<table><tr><th>Ciclo</th><th>Fidelidade (meses)</th><th>Desconto</th></tr>' +
+      CYCLE_TABLE.map(r => `<tr><td>${r.cycle}</td><td>${r.months}</td><td>${r.discount}</td></tr>`).join('') + '</table>'
+    w.document.write(`<html><head><title>${esc(CONTRACT_TITLE)}</title><style>
+      body{font-family:Georgia,serif;max-width:800px;margin:30px auto;line-height:1.5;color:#222;font-size:13px}
+      h1{font-size:18px;text-align:center}h3{font-size:14px;margin:18px 0 4px}p{margin:4px 0;text-align:justify}
+      table{border-collapse:collapse;margin:10px 0}td,th{border:1px solid #999;padding:4px 10px}
+    </style></head><body><h1>${esc(CONTRACT_TITLE)}</h1>
+    <p style="text-align:center">Versão ${CONTRACT_VERSION} — Plano ${esc(chosenPlan.name)}</p>${html}${table}</body></html>`)
+    w.document.close()
+    w.print()
+  }
 
   // Pagamento da assinatura
   const [gateway, setGateway] = useState<'stripe' | 'mercadopago' | 'pagarme'>('mercadopago')
   const [payerDoc, setPayerDoc] = useState('')
   const [payerPhone, setPayerPhone] = useState('')
+  // Mercado Pago: PIX transparente (QR Code na tela) ou cartão (Checkout Pro)
+  const [mpMethod, setMpMethod] = useState<'pix' | 'card'>('pix')
+  const [pixData, setPixData] = useState<{ paymentId: number; qrCode: string; qrCodeBase64: string; amount: number } | null>(null)
+  const [pixPaid, setPixPaid] = useState(false)
+  const [pixCopied, setPixCopied] = useState(false)
+
+  // Acompanha o PIX: consulta o Mercado Pago a cada 5s até aprovar
+  useEffect(() => {
+    if (!pixData || pixPaid) return
+    let cancelled = false
+    const check = async () => {
+      try {
+        const { paymentGatewayService } = await import('../services/paymentGatewayService')
+        const r = await paymentGatewayService.verifyMercadoPagoPayment(pixData.paymentId)
+        if (!cancelled && r.paid) setPixPaid(true)
+      } catch { /* tenta de novo no próximo ciclo */ }
+    }
+    check()
+    const id = setInterval(check, 5000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [pixData, pixPaid])
+
+  async function copyPix() {
+    if (!pixData) return
+    try { await navigator.clipboard.writeText(pixData.qrCode); setPixCopied(true); setTimeout(() => setPixCopied(false), 2500) } catch { /* ignora */ }
+  }
   const [payLoading, setPayLoading] = useState(false)
 
   const chosenPlan = PLANS_CATALOG.find(p => p.id === selectedPlan)!
@@ -438,16 +488,18 @@ export function OnboardPage() {
     setPayLoading(true)
     try {
       const { paymentGatewayService } = await import('../services/paymentGatewayService')
-      await paymentGatewayService.checkoutSubscription({
+      const out = await paymentGatewayService.checkoutSubscription({
         gateway,
+        paymentMethod: gateway === 'mercadopago' ? mpMethod : undefined,
         billingCycle: 'mensal',
         customerName: form.adminName,
         customerEmail: form.adminEmail,
         customerDocument: payerDoc,
         customerPhone: payerPhone,
       })
-      // Em caso de sucesso o navegador é redirecionado para o gateway;
-      // se cair aqui é porque falhou (o serviço já mostra o toast de erro).
+      // PIX: mostra o QR Code aqui mesmo. Demais casos: o navegador é redirecionado
+      // para o gateway (se cair aqui sem pix é porque falhou; o serviço já mostra o toast).
+      if (out && 'pix' in out && out.pix) setPixData(out.pix)
     } finally {
       setPayLoading(false)
     }
@@ -475,6 +527,33 @@ export function OnboardPage() {
           </div>
         </div>
 
+        {pixPaid ? (
+          <div className="text-center py-4">
+            <CheckCircle size={48} className="mx-auto text-sage-600 mb-3" />
+            <h3 className="font-display text-xl font-bold text-mocha-900 mb-1">Pagamento confirmado!</h3>
+            <p className="text-sm text-mocha-500 mb-5">Seu plano está ativo. Enviamos a confirmação para o seu e-mail.</p>
+            <a href="/login" className="btn-primary inline-block px-6 py-3">Entrar no sistema</a>
+          </div>
+        ) : pixData ? (
+          <div className="text-center">
+            <p className="text-sm font-semibold text-mocha-700 mb-1">Pague com PIX</p>
+            <p className="text-xs text-mocha-400 mb-3">Abra o app do seu banco, escolha PIX e leia o QR Code ou use o copia e cola.</p>
+            {pixData.qrCodeBase64 && (
+              <img src={`data:image/png;base64,${pixData.qrCodeBase64}`} alt="QR Code PIX"
+                className="mx-auto w-52 h-52 rounded-xl border border-cream-200 mb-3" />
+            )}
+            <p className="font-display font-bold text-mocha-900 mb-3">{formatCurrency(pixData.amount)}</p>
+            <textarea readOnly value={pixData.qrCode} rows={3}
+              className="input text-[11px] font-mono w-full mb-2" onFocus={e => e.currentTarget.select()} />
+            <button type="button" onClick={copyPix}
+              className="w-full btn-primary py-3 flex items-center justify-center gap-2 mb-3">
+              <Copy size={16} /> {pixCopied ? 'Código copiado!' : 'Copiar código PIX'}
+            </button>
+            <p className="flex items-center justify-center gap-2 text-xs text-mocha-400">
+              <Loader2 size={12} className="animate-spin" /> Aguardando a confirmação do pagamento...
+            </p>
+          </div>
+        ) : (<>
         <p className="text-sm font-semibold text-mocha-700 mb-2">Escolha a forma de pagamento:</p>
         <div className="grid grid-cols-3 gap-2 mb-4">
           {[
@@ -491,6 +570,19 @@ export function OnboardPage() {
           ))}
         </div>
 
+        {gateway === 'mercadopago' && (
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {[{ id: 'pix', label: 'PIX' }, { id: 'card', label: 'Cartão de crédito' }].map(m => (
+              <button key={m.id} type="button" onClick={() => setMpMethod(m.id as 'pix' | 'card')}
+                className={`rounded-xl border-2 py-2.5 text-xs font-semibold transition-all ${
+                  mpMethod === m.id ? 'border-sage-600 bg-sage-50 text-sage-700' : 'border-cream-200 text-mocha-500 hover:border-cream-300'
+                }`}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3 mb-5">
           <div>
             <label className="label">CPF/CNPJ</label>
@@ -505,14 +597,17 @@ export function OnboardPage() {
         <button onClick={handlePay} disabled={payLoading}
           className="w-full btn-primary py-3 flex items-center justify-center gap-2 disabled:opacity-50">
           {payLoading
-            ? <><Loader2 size={16} className="animate-spin" /> Redirecionando...</>
-            : <><CreditCard size={16} /> Pagar {formatCurrency(chosenPlan.price)} e ativar</>}
+            ? <><Loader2 size={16} className="animate-spin" /> {gateway === 'mercadopago' && mpMethod === 'pix' ? 'Gerando PIX...' : 'Redirecionando...'}</>
+            : gateway === 'mercadopago' && mpMethod === 'pix'
+              ? <><CreditCard size={16} /> Gerar código PIX de {formatCurrency(chosenPlan.price)}</>
+              : <><CreditCard size={16} /> Pagar {formatCurrency(chosenPlan.price)} e ativar</>}
         </button>
         <p className="text-center text-mocha-400 text-xs mt-4">
           Você será redirecionado(a) com segurança para o gateway escolhido.
           Depois de pagar, é só entrar com seu email e senha em{' '}
           <a href="/login" className="text-chocolate-600 underline">/login</a>.
         </p>
+        </>)}
       </div>
     </div>
   )
@@ -645,7 +740,16 @@ export function OnboardPage() {
                 Leia com atenção antes de continuar. Versão {CONTRACT_VERSION} — plano {chosenPlan.name} ({formatCurrency(chosenPlan.price)}/mês).
               </p>
 
-              <div className="max-h-72 overflow-y-auto rounded-2xl bg-white/5 border border-white/10 p-4 space-y-4 mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[11px] text-chocolate-300">Contratada: <strong className="text-cream-50">{MASTERCODE.razaoSocial}</strong> · CNPJ {MASTERCODE.cnpj}</p>
+                <button type="button" onClick={handlePrintContract}
+                  className="flex items-center gap-1 text-[11px] text-chocolate-200 hover:text-cream-50 transition-colors">
+                  <Printer size={12} /> Imprimir / salvar PDF
+                </button>
+              </div>
+
+              <div onScroll={handleContractScroll}
+                className="max-h-[22rem] overflow-y-auto rounded-2xl bg-white/5 border border-white/10 p-4 space-y-4 mb-2">
                 {contractClauses.map((clause, i) => (
                   <div key={i}>
                     <p className="text-sm font-semibold text-cream-50 mb-1">{clause.title}</p>
@@ -654,20 +758,38 @@ export function OnboardPage() {
                     ))}
                   </div>
                 ))}
+                <div className="overflow-x-auto">
+                  <table className="text-xs text-chocolate-200 border border-white/10">
+                    <thead><tr className="text-cream-50">
+                      <th className="px-3 py-1.5 text-left">Ciclo</th><th className="px-3 py-1.5 text-left">Fidelidade</th><th className="px-3 py-1.5 text-left">Desconto</th>
+                    </tr></thead>
+                    <tbody>{CYCLE_TABLE.map(r => (
+                      <tr key={r.cycle} className="border-t border-white/10">
+                        <td className="px-3 py-1.5">{r.cycle}</td><td className="px-3 py-1.5">{r.months}</td><td className="px-3 py-1.5">{r.discount}</td>
+                      </tr>))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
-              <label className="flex items-start gap-2.5 mb-5 cursor-pointer">
-                <input type="checkbox" checked={contractAccepted}
+              {!readToEnd && (
+                <p className="flex items-center gap-1 text-[11px] text-amber-300 mb-3">
+                  <ChevronDown size={12} /> Role até o final do contrato para liberar o aceite.
+                </p>
+              )}
+
+              <label className={`flex items-start gap-2.5 mb-5 mt-2 ${readToEnd ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
+                <input type="checkbox" checked={contractAccepted} disabled={!readToEnd}
                   onChange={e => setContractAccepted(e.target.checked)}
                   className="mt-0.5 w-4 h-4 rounded accent-chocolate-500" />
                 <span className="text-xs text-chocolate-200">
-                  Li e concordo com os termos do <strong className="text-cream-50">Contrato de Prestação de Serviços</strong>,
-                  incluindo as cláusulas de cancelamento, desistência e eventual multa por rescisão antecipada em planos com fidelidade.
+                  Li e concordo com o <strong className="text-cream-50">Contrato de Prestação de Serviços da Mastercode</strong>,
+                  incluindo as cláusulas de desistência ({'7'} dias), cancelamento, multa por rescisão antecipada em planos com fidelidade, responsabilidades da contratante e LGPD.
                 </span>
               </label>
 
               <div className="flex gap-3">
-                <button type="button" onClick={() => setStep('form')}
+                <button type="button" onClick={() => { setStep('form'); setReadToEnd(false); setContractAccepted(false) }}
                   className="flex-1 flex items-center justify-center gap-1.5 bg-white/10 hover:bg-white/15 text-cream-50 font-medium py-3 rounded-xl transition-all">
                   <ArrowLeft size={15} /> Voltar
                 </button>
