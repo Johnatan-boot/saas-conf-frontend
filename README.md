@@ -1,3 +1,5 @@
+<img width="1366" height="768" alt="Captura de tela 2026-10-28 162050" src="https://github.com/user-attachments/assets/f92cb17b-06a3-4696-a745-38a7ff8b37ca" />
+<img width="1366" height="768" alt="Captura de tela 2026-10-28 162032" src="https://github.com/user-attachments/assets/80afcdd9-cff6-403e-81df-451b67378a7e" />
 # SweetFlow — Frontend
 
 Interface web do **SweetFlow**, plataforma SaaS de gestão para confeitarias desenvolvida pela **Mastercode**.
