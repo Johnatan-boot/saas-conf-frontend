@@ -1,3 +1,5 @@
+Leia a materia no LINKEDIN https://lnkd.in/p/dwVGHpVP
+
 assista aqui o comportamento de nosso sistema sweetflown 
 https://youtu.be/2MNmnFZ-5iw
 https://youtu.be/NsmPWwnyoaA
