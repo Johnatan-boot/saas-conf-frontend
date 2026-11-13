@@ -1,3 +1,13 @@
+assista aqui o comportamento de nosso sistema sweetflown 
+https://youtu.be/2MNmnFZ-5iw
+https://youtu.be/NsmPWwnyoaA
+https://youtu.be/2MNmnFZ-5iw
+https://youtu.be/jrBhfqk9PU8
+https://youtu.be/1KKMTRvZfIE
+https://youtu.be/wSazyYwOQQE
+https://youtu.be/zRM7tz4y-pA
+
+
 <img width="1366" height="768" alt="Captura de tela 2026-10-28 162050" src="https://github.com/user-attachments/assets/f92cb17b-06a3-4696-a745-38a7ff8b37ca" />
 <img width="1366" height="768" alt="Captura de tela 2026-10-28 162032" src="https://github.com/user-attachments/assets/80afcdd9-cff6-403e-81df-451b67378a7e" />
 # SweetFlow — Frontend
